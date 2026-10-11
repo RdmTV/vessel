@@ -76,7 +76,7 @@ export function GoalsBar({ onOpen }: { onOpen: (g: Goal | 'new') => void }) {
             <i style={{ background: g.color }} />
             <span className="goal-title">{g.title}</span>
             <span className="goal-meta">
-              {formatDayShort(g.start)} – {formatDayShort(g.end)}
+              {goalDate(g.start, today)} – {goalDate(g.end, today)}
               {st.planned > 0 && <> · {formatMinutes(st.done)} из {formatMinutes(st.planned)}</>}
               {streak > 1 && <> · серия {streak} дн.</>}
             </span>
@@ -86,6 +86,12 @@ export function GoalsBar({ onOpen }: { onOpen: (g: Goal | 'new') => void }) {
       <button type="button" className="goal-chip goal-add" onClick={() => onOpen('new')}>+ Цель</button>
     </div>
   );
+}
+
+/** «12.10» в текущем году, «11.01.2027» — в другом. */
+function goalDate(key: string, today: string): string {
+  const short = formatDayShort(key).split(' ')[1];
+  return key.slice(0, 4) === today.slice(0, 4) ? short : `${short}.${key.slice(0, 4)}`;
 }
 
 export function Legend() {
