@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { addDays, diffDays, formatMinutes, fromKey, toKey } from '../domain/dates';
 import { DAY_CAPACITY, dayLoad, type DayLoad } from '../domain/day';
+import { RATING_COLORS } from '../domain/checkin';
 import { ageYears, lifeEnd } from '../domain/life';
 import type { AppData, DateKey, Profile } from '../domain/types';
 import { mix } from './colors';
@@ -191,10 +192,28 @@ export function LifeGrid({ data, profile, today, selected, revealMs, onPick }: P
         ctx.fillText(L.labelW > 40 ? `${year} · ${yi}` : String(yi), (L.labelW - 6) * L.dpr, y + L.unit / 2);
       });
 
+      // Подложка целей: полоса цвета цели под днями её срока — видна в промежутках между строками.
+      const goals = data.goals ?? [];
+      if (goals.length && revealDays === Infinity) {
+        const pad = Math.max(1, Math.floor(L.rowGap * 0.8));
+        ctx.globalAlpha = 0.9;
+        for (const g of goals) {
+          ctx.fillStyle = g.color;
+          for (const c of cells) {
+            if (c.key < g.start || c.key > g.end) continue;
+            ctx.fillRect(c.x, c.y - pad, L.unit, size + pad * 2);
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+
       for (const c of cells) {
         // при «проявлении» прожитое закрашивается по порядку от рождения
         const hidden = c.key <= today && c.n >= revealDays;
-        ctx.fillStyle = hidden ? C.future : dayColor(c.key, today, loads.get(c.key));
+        let color = hidden ? C.future : dayColor(c.key, today, loads.get(c.key));
+        const ci = !hidden && c.key < today ? data.checkins?.[c.key] : undefined;
+        if (ci) color = mix(color, RATING_COLORS[ci.rating - 1], 0.55);
+        ctx.fillStyle = color;
         ctx.fillRect(c.x, c.y, size, size);
       }
 
@@ -227,7 +246,7 @@ export function LifeGrid({ data, profile, today, selected, revealMs, onPick }: P
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [layout, cells, loads, profile, today, selected, revealMs]);
+  }, [layout, cells, loads, profile, today, selected, revealMs, data.goals, data.checkins]);
 
   /** Клетка под курсором → дата. */
   const dateAt = (clientX: number, clientY: number): DateKey | null => {
@@ -275,6 +294,10 @@ export function LifeGrid({ data, profile, today, selected, revealMs, onPick }: P
     const age = ageYears(profile.birthDate, key);
     let text = `${d.getDate()} ${MONTHS_GEN[d.getMonth()]} ${d.getFullYear()} · ${age} лет`;
     if (key === today) text += ' · сегодня';
+    const goalNames = (data.goals ?? []).filter((g) => g.start <= key && key <= g.end).map((g) => g.title);
+    if (goalNames.length) text += ` · ${goalNames.join(', ')}`;
+    const ci = data.checkins?.[key];
+    if (ci) text += ` · оценка ${ci.rating}/5`;
     if (load?.overflow) text += ` · переполнен на ${formatMinutes(load.overflow)}`;
     else if (load?.hasPlan) text += ` · запланировано ${formatMinutes(load.planned)}`;
     setTip({ text, x: e.clientX, y: e.clientY });

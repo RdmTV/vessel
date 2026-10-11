@@ -21,6 +21,31 @@ export function addDays(key: DateKey, n: number): DateKey {
   return toKey(d);
 }
 
+export function addMonths(key: DateKey, n: number): DateKey {
+  const d = fromKey(key);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + n);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, last));
+  return toKey(d);
+}
+
+const MONTHS_NOM = [
+  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+];
+
+export function formatMonth(key: DateKey): string {
+  const d = fromKey(key);
+  return `${MONTHS_NOM[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+export function formatDateLong(key: DateKey): string {
+  const d = fromKey(key);
+  return `${d.getDate()} ${MONTHS_GEN[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 /** 0 = Пн … 6 = Вс */
 export function weekday(key: DateKey): number {
   return (fromKey(key).getDay() + 6) % 7;

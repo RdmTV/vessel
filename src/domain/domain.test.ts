@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { computeDay, dayLoad, nearestFitDays, tasksForDate } from './day';
 import { emptyData } from './defaults';
+import { pendingCheckIn, saveCheckIn, skipCheckIn } from './checkin';
+import { addGoal, deleteGoal, goalStats, goalStreak, updateGoal, type GoalInput } from './goals';
 import { ageYears, lifeEnd, lifeStats, pluralDays } from './life';
+import { periodRange, periodStats } from './stats';
 import { aggregateWeek, weekDays, weekStart } from './week';
 import {
   addTask, clearRoutineOverrides, deleteTask, moveTask, promoteRoutineOverride, routineOverridesFrom,
@@ -168,6 +171,87 @@ describe('ручные значения рутины', () => {
     const promoted = promoteRoutineOverride(d, MON, 'sleep');
     expect(promoted.routine.find((r) => r.id === 'sleep')?.minutes).toBe(450);
     expect(promoted.routineOverrides[MON]).toEqual({ food: 60 });
+  });
+});
+
+describe('цели', () => {
+  const input = (over: Partial<GoalInput> = {}): GoalInput => ({
+    title: 'Английский', categoryId: 'study', color: '#4FD1E8',
+    start: '2026-10-01', end: '2026-12-31', reserve: { minutes: 30, weekdays: [0, 1, 2, 3, 4, 5, 6] }, ...over,
+  });
+
+  it('резерв кладёт пласт цели в каждый день — с сегодняшнего, не задним числом', () => {
+    const d = addGoal(bare(), input(), MON);
+    const goal = d.goals![0];
+    expect(tasksForDate(d, MON).map((t) => t.goalId)).toEqual([goal.id]);
+    expect(tasksForDate(d, '2026-10-05')).toHaveLength(0); // до сегодня — нет
+    expect(tasksForDate(d, '2027-01-01')).toHaveLength(0); // после конца цели — нет
+    expect(computeDay(d, '2026-10-20').total).toBe(30);
+  });
+
+  it('считает часы цели и серию чек-инов', () => {
+    let d = addGoal(bare(), input(), MON);
+    const goal = d.goals![0];
+    d = toggleDone(d, tasksForDate(d, MON)[0].id);
+    const s = goalStats(d, goal, MON, '2026-10-18');
+    expect(s).toEqual({ planned: 7 * 30, done: 30 });
+    d = saveCheckIn(d, { date: '2026-10-11', rating: 4, goals: { [goal.id]: 'yes' } }, MON);
+    d = saveCheckIn(d, { date: '2026-10-10', rating: 3, goals: { [goal.id]: 'little' } }, MON);
+    d = saveCheckIn(d, { date: '2026-10-09', rating: 2, goals: { [goal.id]: 'no' } }, MON);
+    expect(goalStreak(d, goal.id, '2026-10-11')).toBe(2);
+  });
+
+  it('удаление цели заканчивает резерв и снимает привязку', () => {
+    let d = addGoal(bare(), input(), MON);
+    d = toggleDone(d, tasksForDate(d, MON)[0].id);
+    d = deleteGoal(d, d.goals![0].id, '2026-10-13');
+    expect(d.goals).toHaveLength(0);
+    expect(tasksForDate(d, '2026-10-14')).toHaveLength(0);
+    expect(tasksForDate(d, MON)[0].goalId).toBeUndefined();
+  });
+
+  it('изменение резерва не трогает прошлое', () => {
+    let d = addGoal(bare(), input(), MON);
+    d = toggleDone(d, tasksForDate(d, MON)[0].id);
+    d = updateGoal(d, d.goals![0].id, input({ reserve: { minutes: 60, weekdays: [0, 1, 2, 3, 4, 5, 6] } }), '2026-10-13');
+    expect(computeDay(d, MON).total).toBe(30);
+    expect(computeDay(d, '2026-10-14').total).toBe(60);
+  });
+});
+
+describe('чек-ин', () => {
+  it('спрашивает про вчера и собирает невыполненное', () => {
+    let d = addTask(bare(), fields(), '2026-10-11', null);
+    d = addTask(d, fields({ title: 'Сделано' }), '2026-10-11', null);
+    d = toggleDone(d, tasksForDate(d, '2026-10-11').find((t) => t.title === 'Сделано')!.id);
+    const p = pendingCheckIn(d, MON)!;
+    expect(p.date).toBe('2026-10-11');
+    expect(p.undone.map((t) => t.title)).toEqual(['Зал']);
+  });
+
+  it('не спрашивает повторно после пропуска и если вчера пусто', () => {
+    const d = addTask(bare(), fields(), '2026-10-11', null);
+    expect(pendingCheckIn(skipCheckIn(d, MON), MON)).toBeNull();
+    expect(pendingCheckIn(bare(), MON)).toBeNull();
+    expect(pendingCheckIn({ ...d, settings: { ...d.settings, checkinEnabled: false } }, MON)).toBeNull();
+  });
+});
+
+describe('итоги', () => {
+  it('делит дни по загрузке', () => {
+    let d = emptyData();
+    d = addTask(d, fields({ timing: { kind: 'duration', minutes: 4 * 60 } }), MON, null); // свободно 30м
+    d = addTask(d, fields({ timing: { kind: 'duration', minutes: 6 * 60 } }), '2026-10-13', null); // переполнен
+    const s = periodStats(d, ...periodRange(MON, 'week'));
+    expect(s.days.find((x) => x.date === MON)?.cls).toBe('tight');
+    expect(s.days.find((x) => x.date === '2026-10-13')?.cls).toBe('over');
+    expect(s.days.find((x) => x.date === SAT)?.cls).toBe('free'); // выходной: свободно 13ч 30м
+    expect(s.classes.tight + s.classes.over + s.classes.free + s.classes.normal).toBe(7);
+    expect(s.tasks).toEqual({ count: 2, doneCount: 0, minutes: 600, doneMinutes: 0 });
+  });
+
+  it('границы месяца', () => {
+    expect(periodRange('2026-02-14', 'month')).toEqual(['2026-02-01', '2026-02-28']);
   });
 });
 

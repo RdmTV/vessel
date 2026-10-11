@@ -17,7 +17,8 @@ export interface ScopeAsk {
   resolve: (scope: EditScope | null) => void;
 }
 
-export type View = 'life' | 'year' | 'week' | 'day';
+export type View = 'life' | 'year' | 'week' | 'day' | 'stats';
+export type StatsPeriod = 'week' | 'month';
 
 interface State {
   data: AppData;
@@ -25,6 +26,7 @@ interface State {
   /** Выбранный день — общий для всех видов (год и неделя показывают то, что вокруг него). */
   date: DateKey;
   view: View;
+  statsPeriod: StatsPeriod;
   /** Черновик новой задачи — призрачный контур в сосуде. */
   draft: TaskFields | null;
   /** Ключ подсвеченного пласта: `t:<taskId>` или `r:<routineId>`. */
@@ -36,6 +38,7 @@ interface State {
 
   setDate: (d: DateKey) => void;
   setView: (v: View) => void;
+  setStatsPeriod: (p: StatsPeriod) => void;
   /** Открыть конкретный день. */
   openDay: (d: DateKey) => void;
   apply: (fn: (d: AppData) => AppData) => void;
@@ -54,6 +57,7 @@ export const useStore = create<State>((set, get) => ({
   loaded: false,
   date: todayKey(),
   view: 'day',
+  statsPeriod: 'week',
   draft: null,
   highlight: null,
   expandedTask: null,
@@ -62,6 +66,7 @@ export const useStore = create<State>((set, get) => ({
 
   setDate: (date) => set({ date, highlight: null, expandedTask: null }),
   setView: (view) => set({ view, highlight: null }),
+  setStatsPeriod: (statsPeriod) => set({ statsPeriod }),
   openDay: (date) => set({ date, view: 'day', highlight: null, expandedTask: null }),
   apply: (fn) => set({ data: fn(get().data) }),
   setDraft: (draft) => set({ draft }),

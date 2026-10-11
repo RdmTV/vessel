@@ -38,6 +38,8 @@ export interface TaskFields {
   location: Location;
   attachments: Attachment[];
   subtasks: Subtask[];
+  /** Привязка к долгосрочной цели. */
+  goalId?: string;
 }
 
 export interface Task extends TaskFields {
@@ -84,6 +86,33 @@ export interface Category {
 export interface Settings {
   /** Буфер-переключение между задачами, минут. 0 = выключено. */
   bufferMinutes: number;
+  /** Ежедневный чек-ин при первом открытии. По умолчанию включён. */
+  checkinEnabled?: boolean;
+}
+
+/** Долгосрочная цель на отрезке жизни. */
+export interface Goal {
+  id: string;
+  title: string;
+  /** Категория пласта резерва в сосуде. */
+  categoryId: string;
+  /** Цвет полосы на сетках. */
+  color: string;
+  start: DateKey;
+  end: DateKey;
+  /** Серия-резерв «N минут в день» (если включён). */
+  seriesId?: string;
+  reserve?: { minutes: number; weekdays: number[] };
+}
+
+export type GoalProgress = 'yes' | 'little' | 'no';
+
+/** Чек-ин про конкретный день. */
+export interface CheckIn {
+  date: DateKey;
+  rating: number; // 1..5
+  note?: string;
+  goals: Record<string, GoalProgress>;
 }
 
 export interface Profile {
@@ -102,4 +131,8 @@ export interface AppData {
   settings: Settings;
   /** Нет профиля — показываем онбординг. */
   profile?: Profile;
+  goals?: Goal[];
+  checkins?: Record<DateKey, CheckIn>;
+  /** День, когда последний раз предлагали чек-ин (чтобы «Пропустить» не спрашивал снова). */
+  lastCheckinPrompt?: DateKey;
 }

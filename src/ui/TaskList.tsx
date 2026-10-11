@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { category } from '../domain/categories';
 import { addDays, formatClock, formatDayShort, formatMinutes, todayKey, weekday } from '../domain/dates';
 import { PRIORITY_RANK, timingMinutes, type DayPlan, type DayTask } from '../domain/day';
@@ -73,6 +73,7 @@ function TaskRow({ task, date, onEdit }: { task: DayTask; date: DateKey; onEdit:
   const color = category(task.categoryId).color;
   const extra = task.attachments.reduce((s, a) => s + a.minutes, 0);
   const series = task.seriesId ? data.series.find((s) => s.id === task.seriesId) : undefined;
+  const goal = task.goalId ? data.goals?.find((g) => g.id === task.goalId) : undefined;
   const subDone = task.subtasks.filter((s) => s.done).length;
 
   const remove = async () => {
@@ -123,6 +124,7 @@ function TaskRow({ task, date, onEdit }: { task: DayTask; date: DateKey; onEdit:
                 : formatMinutes(timingMinutes(task.timing))}
             </span>
             {extra > 0 && <span className="muted">+{formatMinutes(extra)} невидимого</span>}
+            {goal && <span className="goal-tag" style={{ '--c': goal.color } as CSSProperties}>{goal.title}</span>}
             {series && <span className="muted" title={describeRule(series.rule)}>↻ {describeRule(series.rule)}</span>}
             {task.subtasks.length > 0 && <span className="muted">☑ {subDone}/{task.subtasks.length}</span>}
           </div>

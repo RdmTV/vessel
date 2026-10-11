@@ -13,8 +13,10 @@ export type EditScope = 'this' | 'following';
 const cloneFields = (f: TaskFields): TaskFields => structuredClone(f);
 
 function pickFields(t: TaskFields): TaskFields {
-  const { title, categoryId, timing, priority, location, attachments, subtasks } = t;
-  return cloneFields({ title, categoryId, timing, priority, location, attachments, subtasks });
+  const { title, categoryId, timing, priority, location, attachments, subtasks, goalId } = t;
+  const fields: TaskFields = cloneFields({ title, categoryId, timing, priority, location, attachments, subtasks });
+  if (goalId) fields.goalId = goalId;
+  return fields;
 }
 
 export function addTask(
@@ -89,6 +91,11 @@ function mergeSubtasks(next: TaskFields, prev: Task): TaskFields {
 }
 
 /** Обрезает серию до дня перед `date` и удаляет её реальные экземпляры начиная с `date`. */
+export function endSeriesFrom(data: AppData, seriesId: string, date: DateKey): AppData {
+  const s = data.series.find((x) => x.id === seriesId);
+  return s ? endSeriesBefore(data, s, date) : data;
+}
+
 function endSeriesBefore(data: AppData, s: Series, date: DateKey, keepTaskId?: string): AppData {
   const series = date <= s.start
     ? data.series.filter((x) => x.id !== s.id)

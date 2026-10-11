@@ -4,6 +4,7 @@ import { formatClock, formatDayShort, formatMinutes, parseClock, weekday } from 
 import {
   DAY_CAPACITY, draftMinutes, intervalLength, PRIORITY_LABEL, type DayPlan, type DayTask,
 } from '../domain/day';
+import { goalsOf } from '../domain/goals';
 import { uid } from '../domain/id';
 import { addTask, updateTask, type EditScope } from '../domain/mutations';
 import type {
@@ -35,6 +36,8 @@ interface Form {
   repeat: Repeat;
   weekdays: number[];
   everyN: number;
+  /** '' — без цели. */
+  goalId: string;
 }
 
 const TRAVEL_QUICK = [15, 30, 45, 60, 90];
@@ -54,7 +57,7 @@ function blankForm(date: DateKey): Form {
     title: '', categoryId: 'chores', timingKind: 'duration', duration: 60,
     start: '19:00', end: '20:00', location: 'home', locationTouched: false, travel: null,
     ...categoryDefaults('chores'),
-    priority: 'medium', subtasks: [], repeat: 'none', weekdays: [weekday(date)], everyN: 2,
+    priority: 'medium', subtasks: [], repeat: 'none', weekdays: [weekday(date)], everyN: 2, goalId: '',
   };
 }
 
@@ -83,6 +86,7 @@ function formFromTask(t: DayTask, rule: RecurrenceRule | null): Form {
     repeat,
     weekdays: rule?.freq === 'weekly' ? rule.weekdays : [weekday(t.date)],
     everyN: rule?.freq === 'everyN' ? rule.interval : 2,
+    goalId: t.goalId ?? '',
   };
 }
 
@@ -105,10 +109,12 @@ function buildFields(f: Form): TaskFields | null {
   if (c.recovery && f.recOn && f.recMin > 0) {
     attachments.push({ kind: 'recovery', label: c.recovery.label, minutes: f.recMin });
   }
-  return {
+  const fields: TaskFields = {
     title: f.title.trim(), categoryId: f.categoryId, timing, priority: f.priority,
     location: f.location, attachments, subtasks: f.subtasks,
   };
+  if (f.goalId) fields.goalId = f.goalId;
+  return fields;
 }
 
 function buildRule(f: Form): RecurrenceRule | null {
@@ -154,6 +160,8 @@ export function Composer({ date, plan, editing, onCloseEdit }: Props) {
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const cat = category(form.categoryId);
+  // Цели, которые идут в этот день, — первыми; уже привязанная остаётся в списке, даже если закончилась.
+  const goals = goalsOf(data).filter((g) => (g.start <= date && date <= g.end) || g.id === form.goalId);
   const fields = useMemo(() => buildFields(form), [form]);
   const rule = buildRule(form);
   const need = fields ? draftMinutes(fields, data.settings.bufferMinutes) : 0;
@@ -370,6 +378,16 @@ export function Composer({ date, plan, editing, onCloseEdit }: Props) {
           options={(['low', 'medium', 'high'] as Priority[]).map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
         />
       </div>
+
+      {goals.length > 0 && (
+        <div className="field field-row">
+          <span className="label">Цель</span>
+          <select value={form.goalId} onChange={(e) => set({ goalId: e.target.value })}>
+            <option value="">Без цели</option>
+            {goals.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
+          </select>
+        </div>
+      )}
 
       <div className="field field-row">
         <span className="label">Повтор</span>

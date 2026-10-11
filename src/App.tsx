@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addDays, formatDay, formatDayShort, formatMinutes, todayKey } from './domain/dates';
+import { pendingCheckIn, type PendingCheckIn } from './domain/checkin';
+import { addDays, addMonths, formatDay, formatDayShort, formatMinutes, formatMonth, todayKey } from './domain/dates';
 import { computeDay, taskItems, type DayItem, type DayTask } from './domain/day';
 import { addYears, ageYears, pluralYears } from './domain/life';
 import type { DateKey } from './domain/types';
 import { weekStart } from './domain/week';
-import { useStore, type View } from './store';
+import { useStore, type StatsPeriod, type View } from './store';
+import { CheckInModal } from './ui/CheckInModal';
 import { itemLayer } from './ui/colors';
 import { Segmented } from './ui/common';
 import { Composer } from './ui/Composer';
@@ -14,6 +16,7 @@ import { OverflowModal } from './ui/Resolution';
 import { RoutineModal } from './ui/RoutineModal';
 import { ScopeDialog } from './ui/ScopeDialog';
 import { SettingsModal } from './ui/SettingsModal';
+import { StatsView } from './ui/StatsView';
 import { TaskList } from './ui/TaskList';
 import { VesselCanvas } from './ui/VesselCanvas';
 import { WeekView } from './ui/WeekView';
@@ -30,11 +33,13 @@ const VIEWS: { value: View; label: string }[] = [
   { value: 'year', label: 'Год' },
   { value: 'week', label: 'Неделя' },
   { value: 'day', label: 'День' },
+  { value: 'stats', label: 'Итоги' },
 ];
 
 /** Шаг навигации ‹ › для каждого вида. */
-function shift(view: View, date: DateKey, dir: 1 | -1): DateKey {
-  if (view === 'week') return addDays(date, 7 * dir);
+function shift(view: View, date: DateKey, dir: 1 | -1, period: StatsPeriod): DateKey {
+  if (view === 'week' || (view === 'stats' && period === 'week')) return addDays(date, 7 * dir);
+  if (view === 'stats') return addMonths(date, dir);
   if (view === 'year') return addYears(date, dir);
   return addDays(date, dir);
 }
@@ -44,7 +49,13 @@ export function App() {
   const hasProfile = useStore((s) => !!s.data.profile);
   const view = useStore((s) => s.view);
   const [modal, setModal] = useState<ModalKind>(null);
+  const [checkin, setCheckin] = useState<PendingCheckIn | null>(null);
   const close = useCallback(() => setModal(null), []);
+
+  // Чек-ин — один раз при первом открытии за день.
+  useEffect(() => {
+    if (loaded && hasProfile) setCheckin(pendingCheckIn(useStore.getState().data, todayKey()));
+  }, [loaded, hasProfile]);
 
   if (!loaded) return <div className="loading">…</div>;
   if (!hasProfile) return <Onboarding />;
@@ -54,11 +65,13 @@ export function App() {
       {view === 'life' && <LifeView />}
       {view === 'year' && <YearView />}
       {view === 'week' && <WeekView />}
+      {view === 'stats' && <StatsView />}
       {view === 'day' && (
         <DayView onOverflow={() => setModal('overflow')} onRoutine={() => setModal('routine')} overflowOpen={modal === 'overflow'} onCloseOverflow={close} />
       )}
       {modal === 'routine' && <RoutineModal onClose={close} />}
       {modal === 'settings' && <SettingsModal onClose={close} />}
+      {checkin && !modal && <CheckInModal pending={checkin} today={todayKey()} onClose={() => setCheckin(null)} />}
       <ScopeDialog />
       <ToastView />
     </div>
@@ -77,24 +90,30 @@ function TopBar({ onRoutine, onSettings }: { onRoutine: () => void; onSettings: 
     const onKey = (e: KeyboardEvent) => {
       const tag = (document.activeElement?.tagName ?? '').toLowerCase();
       if (['input', 'textarea', 'select'].includes(tag) || document.querySelector('.modal')) return;
-      const { view: v, date: d } = useStore.getState();
+      const { view: v, date: d, statsPeriod: p } = useStore.getState();
       if (v === 'life') return;
-      if (e.key === 'ArrowLeft') setDate(shift(v, d, -1));
-      if (e.key === 'ArrowRight') setDate(shift(v, d, 1));
+      if (e.key === 'ArrowLeft') setDate(shift(v, d, -1, p));
+      if (e.key === 'ArrowRight') setDate(shift(v, d, 1, p));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [setDate]);
 
+  const statsPeriod = useStore((s) => s.statsPeriod);
   const ws = weekStart(date);
+  const weekView = view === 'week' || (view === 'stats' && statsPeriod === 'week');
+  const monthView = view === 'stats' && statsPeriod === 'month';
   const title = view === 'day' ? formatDay(date)
-    : view === 'week' ? `${formatDayShort(ws)} – ${formatDayShort(addDays(ws, 6))}`
-      : view === 'year' ? date.slice(0, 4)
-        : profile ? `Тебе ${pluralYears(ageYears(profile.birthDate, today))}` : '';
+    : weekView ? `${formatDayShort(ws)} – ${formatDayShort(addDays(ws, 6))}`
+      : monthView ? formatMonth(date)
+        : view === 'year' ? date.slice(0, 4)
+          : profile ? `Тебе ${pluralYears(ageYears(profile.birthDate, today))}` : '';
   const isCurrent = view === 'day' ? date === today
-    : view === 'week' ? ws === weekStart(today)
-      : view === 'year' ? date.slice(0, 4) === today.slice(0, 4)
-        : true;
+    : weekView ? ws === weekStart(today)
+      : monthView ? date.slice(0, 7) === today.slice(0, 7)
+        : view === 'year' ? date.slice(0, 4) === today.slice(0, 4)
+          : true;
+  const currentLabel = view === 'day' ? 'сегодня' : weekView ? 'эта неделя' : monthView ? 'этот месяц' : 'этот год';
 
   return (
     <header className="topbar">
@@ -102,17 +121,17 @@ function TopBar({ onRoutine, onSettings }: { onRoutine: () => void; onSettings: 
       <Segmented small value={view} onChange={setView} options={VIEWS} />
       <div className="datenav">
         {view !== 'life' && (
-          <button type="button" className="icon-btn" onClick={() => setDate(shift(view, date, -1))} aria-label="Назад">‹</button>
+          <button type="button" className="icon-btn" onClick={() => setDate(shift(view, date, -1, statsPeriod))} aria-label="Назад">‹</button>
         )}
         <label className="date-title">
           {title}
           {view === 'day' && <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />}
         </label>
         {view !== 'life' && (
-          <button type="button" className="icon-btn" onClick={() => setDate(shift(view, date, 1))} aria-label="Вперёд">›</button>
+          <button type="button" className="icon-btn" onClick={() => setDate(shift(view, date, 1, statsPeriod))} aria-label="Вперёд">›</button>
         )}
         {view !== 'life' && (isCurrent
-          ? <span className="today-badge">{view === 'day' ? 'сегодня' : view === 'week' ? 'эта неделя' : 'этот год'}</span>
+          ? <span className="today-badge">{currentLabel}</span>
           : <button type="button" className="chip" onClick={() => setDate(today)}>К сегодня</button>)}
       </div>
       <div className="topbar-actions">
@@ -164,7 +183,8 @@ function DayView({ onOverflow, onRoutine, overflowOpen, onCloseOverflow }: {
     setHighlight(key.split(':').slice(0, 2).join(':'));
     const item = plan.items.find((i) => i.key === key);
     if (item) {
-      const kind = KIND_LABEL[item.kind];
+      const isGoal = item.kind === 'task' && !!plan.tasks.find((t) => t.id === item.taskId)?.goalId;
+      const kind = isGoal ? 'цель' : KIND_LABEL[item.kind];
       setTip({ text: `${item.title}${kind ? ` (${kind})` : ''} · ${formatMinutes(item.minutes)}`, x, y });
     }
   };

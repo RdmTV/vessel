@@ -81,6 +81,19 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
       <div className="setting">
         <div>
+          <div>Утренний чек-ин</div>
+          <div className="muted small">При первом открытии за день — как прошёл вчерашний.</div>
+        </div>
+        <Segmented
+          small
+          value={data.settings.checkinEnabled === false ? 'off' : 'on'}
+          onChange={(v) => apply((d) => ({ ...d, settings: { ...d.settings, checkinEnabled: v === 'on' } }))}
+          options={[{ value: 'on', label: 'Вкл' }, { value: 'off', label: 'Выкл' }]}
+        />
+      </div>
+
+      <div className="setting">
+        <div>
           <div>Резервная копия</div>
           <div className="muted small">Данные хранятся только в этом браузере.</div>
         </div>

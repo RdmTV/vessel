@@ -1,6 +1,10 @@
-import { todayKey } from '../domain/dates';
+import { useMemo, useState } from 'react';
+import { addDays, formatDayShort, formatMinutes, todayKey } from '../domain/dates';
+import { goalsOf, goalStats, goalStreak } from '../domain/goals';
 import { lifeStats, pluralDays, pluralYears } from '../domain/life';
+import type { Goal } from '../domain/types';
 import { useStore } from '../store';
+import { GoalModal } from './GoalModal';
 import { LifeGrid } from './LifeGrid';
 
 export function LifeView() {
@@ -8,6 +12,7 @@ export function LifeView() {
   const date = useStore((s) => s.date);
   const setDate = useStore((s) => s.setDate);
   const setView = useStore((s) => s.setView);
+  const [editing, setEditing] = useState<Goal | 'new' | null>(null);
   const profile = data.profile!;
   const today = todayKey();
   const s = lifeStats(profile, today);
@@ -31,6 +36,9 @@ export function LifeView() {
           <i style={{ width: `${s.share * 100}%` }} />
         </div>
       </div>
+
+      <GoalsBar onOpen={setEditing} />
+
       <LifeGrid
         data={data}
         profile={profile}
@@ -42,18 +50,53 @@ export function LifeView() {
         }}
       />
       <Legend />
+      {editing && <GoalModal goal={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </main>
+  );
+}
+
+/** Цели над сеткой: срок, часы «сделано / запланировано», серия дней с прогрессом. */
+export function GoalsBar({ onOpen }: { onOpen: (g: Goal | 'new') => void }) {
+  const data = useStore((s) => s.data);
+  const today = todayKey();
+  const goals = goalsOf(data);
+  const stats = useMemo(
+    () => new Map(goals.map((g) => [g.id, goalStats(data, g)])),
+    [data, goals],
+  );
+
+  return (
+    <div className="goals-bar">
+      {goals.map((g) => {
+        const st = stats.get(g.id)!;
+        const streak = goalStreak(data, g.id, addDays(today, -1));
+        const past = g.end < today;
+        return (
+          <button key={g.id} type="button" className={`goal-chip ${past ? 'past' : ''}`} onClick={() => onOpen(g)}>
+            <i style={{ background: g.color }} />
+            <span className="goal-title">{g.title}</span>
+            <span className="goal-meta">
+              {formatDayShort(g.start)} – {formatDayShort(g.end)}
+              {st.planned > 0 && <> · {formatMinutes(st.done)} из {formatMinutes(st.planned)}</>}
+              {streak > 1 && <> · серия {streak} дн.</>}
+            </span>
+          </button>
+        );
+      })}
+      <button type="button" className="goal-chip goal-add" onClick={() => onOpen('new')}>+ Цель</button>
+    </div>
   );
 }
 
 export function Legend() {
   return (
     <div className="legend">
-      <span><i style={{ background: '#3A3C46' }} />прожито</span>
+      <span><i style={{ background: '#575A66' }} />прожито</span>
       <span><i style={{ background: '#55C46A' }} />сегодня</span>
       <span><i style={{ background: '#22242C', outline: '1px solid #33363f' }} />впереди</span>
       <span><i style={{ background: '#8A97FF' }} />запланировано</span>
       <span><i style={{ background: '#FF5A5F' }} />переполнено</span>
+      <span><i style={{ background: 'linear-gradient(90deg, #D9605F, #D8C152, #55C46A)' }} />оценка дня (чек-ин)</span>
     </div>
   );
 }
