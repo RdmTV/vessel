@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { category } from '../domain/categories';
-import { addDays, formatClock, formatMinutes, weekday } from '../domain/dates';
+import { addDays, formatClock, formatDayShort, formatMinutes, todayKey, weekday } from '../domain/dates';
 import { PRIORITY_RANK, timingMinutes, type DayPlan, type DayTask } from '../domain/day';
-import { deleteTask, moveTask, setRoutineOverride, toggleDone, toggleSubtask } from '../domain/mutations';
+import {
+  deleteTask, moveTask, promoteRoutineOverride, setRoutineOverride, toggleDone, toggleSubtask,
+} from '../domain/mutations';
 import { describeRule } from '../domain/recurrence';
 import type { DateKey } from '../domain/types';
 import { useStore } from '../store';
@@ -164,19 +166,33 @@ function RoutineGroup({ date, onOpenRoutine }: { date: DateKey; onOpenRoutine: (
   const apply = useStore((s) => s.apply);
   const highlight = useStore((s) => s.highlight);
   const setHighlight = useStore((s) => s.setHighlight);
+  const showToast = useStore((s) => s.showToast);
   const [open, setOpen] = useState(false);
 
   const wd = weekday(date);
   const overrides = data.routineOverrides[date] ?? {};
+  const changedCount = Object.keys(overrides).length;
   const items = data.routine.filter((r) => r.weekdays.includes(wd));
   const total = items.reduce((s, r) => s + (overrides[r.id] ?? r.minutes), 0);
-  const set = (id: string, m: number | null) => apply((d) => setRoutineOverride(d, date, id, m));
+  const dayLabel = date === todayKey() ? 'сегодня' : formatDayShort(date);
+
+  /** −/+ меняют только этот день — говорим об этом сразу и предлагаем сделать для всех дней. */
+  const setForDay = (id: string, title: string, m: number) => {
+    apply((d) => setRoutineOverride(d, date, id, m));
+    showToast({
+      text: `${title}: ${m === 0 ? 'пропуск' : formatMinutes(m)} — только ${dayLabel === 'сегодня' ? 'на сегодня' : `на ${dayLabel}`}`,
+      action: { label: 'Для всех дней', run: () => apply((d) => promoteRoutineOverride(d, date, id)) },
+    });
+  };
 
   return (
     <div className="group group-routine">
       <button type="button" className="group-head group-toggle" onClick={() => setOpen(!open)}>
         <span>{open ? '▾' : '▸'} Рутина</span>
-        <span className="muted">{formatMinutes(total)}{Object.keys(overrides).length > 0 ? ' · изменена на сегодня' : ''}</span>
+        <span className="muted">
+          {formatMinutes(total)}
+          {changedCount > 0 && <span className="badge-warn">изменена на {dayLabel}</span>}
+        </span>
       </button>
       {open && (
         <>
@@ -187,23 +203,48 @@ function RoutineGroup({ date, onOpenRoutine }: { date: DateKey; onOpenRoutine: (
             return (
               <div
                 key={r.id}
-                className={`routine-row ${m === 0 ? 'skipped' : ''} ${highlight === key ? 'lit' : ''}`}
+                className={`routine-row ${m === 0 ? 'skipped' : ''} ${changed ? 'changed' : ''} ${highlight === key ? 'lit' : ''}`}
                 onMouseEnter={() => setHighlight(key)}
                 onMouseLeave={() => setHighlight(null)}
               >
                 <span className="swatch" style={{ background: mix(category(r.categoryId).color, '#2B2D36', 0.38) }} />
-                <span className="routine-title">{r.title}</span>
+                <span className="routine-title">
+                  {r.title}
+                  {changed && <small>только {dayLabel === 'сегодня' ? 'сегодня' : dayLabel} · в шаблоне {formatMinutes(r.minutes)}</small>}
+                </span>
                 <div className="stepper stepper-sm">
-                  <button type="button" onClick={() => set(r.id, Math.max(0, m - 15))}>−</button>
+                  <button type="button" onClick={() => setForDay(r.id, r.title, Math.max(0, m - 15))}>−</button>
                   <span>{m === 0 ? 'пропуск' : formatMinutes(m)}</span>
-                  <button type="button" onClick={() => set(r.id, m + 15)}>+</button>
+                  <button type="button" onClick={() => setForDay(r.id, r.title, m + 15)}>+</button>
                 </div>
-                {changed
-                  ? <button type="button" className="link" onClick={() => set(r.id, null)}>сбросить</button>
-                  : <button type="button" className="link" onClick={() => set(r.id, 0)}>пропустить</button>}
+                {changed ? (
+                  <span className="routine-actions">
+                    <button type="button" className="link" onClick={() => apply((d) => setRoutineOverride(d, date, r.id, null))}>как в шаблоне</button>
+                    <button type="button" className="link" onClick={() => apply((d) => promoteRoutineOverride(d, date, r.id))}>в шаблон</button>
+                  </span>
+                ) : (
+                  <span className="routine-actions">
+                    <button type="button" className="link" onClick={() => setForDay(r.id, r.title, 0)}>пропустить</button>
+                  </span>
+                )}
               </div>
             );
           })}
+          <p className="muted small routine-hint">
+            −/+ меняют только {dayLabel === 'сегодня' ? 'сегодняшний день' : dayLabel}. Для всех дней — шаблон.
+            {changedCount > 1 && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => apply((d) => Object.keys(overrides).reduce((acc, id) => setRoutineOverride(acc, date, id, null), d))}
+                >
+                  Вернуть всё как в шаблоне
+                </button>
+              </>
+            )}
+          </p>
           <button type="button" className="link link-block" onClick={onOpenRoutine}>Настроить шаблон рутины →</button>
         </>
       )}

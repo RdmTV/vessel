@@ -197,3 +197,34 @@ export function setRoutineOverride(
   else delete routineOverrides[date];
   return { ...data, routineOverrides };
 }
+
+/** Ручные значения пункта рутины начиная с даты: [дата, минуты]. */
+export function routineOverridesFrom(data: AppData, from: DateKey, itemId: string): [DateKey, number][] {
+  return Object.entries(data.routineOverrides)
+    .filter(([date, day]) => date >= from && itemId in day)
+    .map(([date, day]) => [date, day[itemId]] as [DateKey, number])
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** Убрать ручные значения рутины начиная с даты (itemId = null — у всех пунктов). */
+export function clearRoutineOverrides(data: AppData, from: DateKey, itemId: string | null = null): AppData {
+  let next = data;
+  for (const [date, day] of Object.entries(data.routineOverrides)) {
+    if (date < from) continue;
+    for (const id of Object.keys(day)) {
+      if (itemId === null || id === itemId) next = setRoutineOverride(next, date, id, null);
+    }
+  }
+  return next;
+}
+
+/** Значение «только на этот день» становится значением шаблона для всех дней. */
+export function promoteRoutineOverride(data: AppData, date: DateKey, itemId: string): AppData {
+  const minutes = data.routineOverrides[date]?.[itemId];
+  if (minutes === undefined) return data;
+  const withTemplate = {
+    ...data,
+    routine: data.routine.map((r) => (r.id === itemId ? { ...r, minutes } : r)),
+  };
+  return setRoutineOverride(withTemplate, date, itemId, null);
+}

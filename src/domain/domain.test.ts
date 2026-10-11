@@ -3,7 +3,10 @@ import { computeDay, dayLoad, nearestFitDays, tasksForDate } from './day';
 import { emptyData } from './defaults';
 import { ageYears, lifeEnd, lifeStats, pluralDays } from './life';
 import { aggregateWeek, weekDays, weekStart } from './week';
-import { addTask, deleteTask, moveTask, toggleDone, updateTask } from './mutations';
+import {
+  addTask, clearRoutineOverrides, deleteTask, moveTask, promoteRoutineOverride, routineOverridesFrom,
+  setRoutineOverride, toggleDone, updateTask,
+} from './mutations';
 import type { AppData, TaskFields } from './types';
 
 // 2026-10-12 — понедельник, 2026-10-17 — суббота.
@@ -143,6 +146,28 @@ describe('dayLoad', () => {
     expect(l.routine).toBe(8 * 60 + 90 + 60);
     expect(l.planned).toBe(120);
     expect(l.hasPlan).toBe(true);
+  });
+});
+
+describe('ручные значения рутины', () => {
+  it('перекрывают шаблон только на свой день', () => {
+    let d = setRoutineOverride(emptyData(), MON, 'sleep', 450);
+    d = { ...d, routine: d.routine.map((r) => (r.id === 'sleep' ? { ...r, minutes: 390 } : r)) };
+    expect(computeDay(d, MON).items.find((i) => i.key === 'r:sleep')?.minutes).toBe(450);
+    expect(computeDay(d, '2026-10-13').items.find((i) => i.key === 'r:sleep')?.minutes).toBe(390);
+  });
+
+  it('сброс с даты и перенос в шаблон', () => {
+    let d = setRoutineOverride(emptyData(), '2026-10-10', 'sleep', 300);
+    d = setRoutineOverride(d, MON, 'sleep', 450);
+    d = setRoutineOverride(d, MON, 'food', 60);
+    expect(routineOverridesFrom(d, MON, 'sleep')).toEqual([[MON, 450]]);
+    const cleared = clearRoutineOverrides(d, MON, 'sleep');
+    expect(cleared.routineOverrides[MON]).toEqual({ food: 60 });
+    expect(cleared.routineOverrides['2026-10-10']).toEqual({ sleep: 300 });
+    const promoted = promoteRoutineOverride(d, MON, 'sleep');
+    expect(promoted.routine.find((r) => r.id === 'sleep')?.minutes).toBe(450);
+    expect(promoted.routineOverrides[MON]).toEqual({ food: 60 });
   });
 });
 

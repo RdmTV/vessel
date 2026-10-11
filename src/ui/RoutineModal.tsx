@@ -1,8 +1,9 @@
 import { CATEGORIES } from '../domain/categories';
-import { formatMinutes } from '../domain/dates';
+import { formatDayShort, formatMinutes, todayKey } from '../domain/dates';
 import { DAY_CAPACITY } from '../domain/day';
 import { uid } from '../domain/id';
-import type { RoutineItem } from '../domain/types';
+import { clearRoutineOverrides, routineOverridesFrom } from '../domain/mutations';
+import type { DateKey, RoutineItem } from '../domain/types';
 import { useStore } from '../store';
 import { DurationPicker, Modal, WeekdayPicker } from './common';
 
@@ -16,10 +17,26 @@ export function RoutineModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Предупреждение: на эти дни стоит своё значение, и шаблон к ним не применяется. */
+function OverrideNotice({ list, today, onReset }: { list: [DateKey, number][]; today: DateKey; onReset: () => void }) {
+  if (!list.length) return null;
+  const shown = list.slice(0, 3).map(([d, m]) => `${d === today ? 'сегодня' : formatDayShort(d)} — ${m === 0 ? 'пропуск' : formatMinutes(m)}`);
+  return (
+    <div className="override-notice">
+      <span>
+        Своё значение: {shown.join(', ')}{list.length > 3 ? ` и ещё ${list.length - 3}` : ''}. Шаблон на эти дни не действует.
+      </span>
+      <button type="button" className="link" onClick={onReset}>Применить шаблон</button>
+    </div>
+  );
+}
+
 /** Редактор шаблона рутины — в модалке и в онбординге. */
 export function RoutineEditor() {
   const routine = useStore((s) => s.data.routine);
+  const data = useStore((s) => s.data);
   const apply = useStore((s) => s.apply);
+  const today = todayKey();
 
   const setRoutine = (fn: (r: RoutineItem[]) => RoutineItem[]) =>
     apply((d) => ({ ...d, routine: fn(d.routine) }));
@@ -49,6 +66,11 @@ export function RoutineEditor() {
             </div>
             <DurationPicker value={r.minutes} onChange={(m) => patch(r.id, { minutes: m })} quick={ROUTINE_QUICK} />
             <WeekdayPicker value={r.weekdays} onChange={(w) => patch(r.id, { weekdays: w })} />
+            <OverrideNotice
+              list={routineOverridesFrom(data, today, r.id)}
+              today={today}
+              onReset={() => apply((d) => clearRoutineOverrides(d, today, r.id))}
+            />
           </div>
         ))}
       </div>
