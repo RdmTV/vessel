@@ -21,9 +21,15 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); -webkit-font-smoothing: antialiased; }
+body {
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
 button, input, select { font: inherit; color: inherit; }
-button { cursor: pointer; }
+button { cursor: pointer; touch-action: manipulation; }
+canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 button:disabled { cursor: default; }
 input, select {
   background: var(--panel-2);
@@ -633,4 +639,20 @@ input[type='time']::-webkit-calendar-picker-indicator { filter: invert(0.8); }
   .hbar-row, .goal-stat { grid-template-columns: 96px 1fr; }
   .hbar-value { grid-column: 1 / -1; text-align: left; margin-top: -6px; }
   .tile b { font-size: 22px; }
+}
+
+/* ───────── iPhone: «как приложение» с экрана Домой */
+
+/* статус-бар прозрачный — контент не должен залезать под чёлку и полоску «домой» */
+.topbar { padding-top: max(10px, env(safe-area-inset-top)); padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+.side, .page { padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px)); }
+.toast { bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px)); max-width: calc(100vw - 24px); }
+.onboarding { padding-top: max(24px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+.modal-backdrop { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+
+/* iOS зумит страницу при фокусе на поле со шрифтом меньше 16px */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px; }
+  .chip, .segmented button { min-height: 32px; }
+  .stepper button { width: 36px; height: 34px; }
 }

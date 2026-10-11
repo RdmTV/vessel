@@ -11,3 +11,10 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('Сервис-воркер не зарегистрирован', e));
+}
+
+// Просим браузер не вычищать данные (на iPhone хранилище иначе могут почистить при нехватке места).
+navigator.storage?.persist?.().catch(() => {});

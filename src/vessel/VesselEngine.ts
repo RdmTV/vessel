@@ -159,6 +159,7 @@ export class VesselEngine {
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerleave', this.onPointerLeave);
     canvas.addEventListener('click', this.onClick);
+    canvas.addEventListener('pointerdown', this.onPointerDown);
     this.raf = requestAnimationFrame(this.frame);
     if (import.meta.env.DEV) (window as unknown as { __vessel: VesselEngine }).__vessel = this;
   }
@@ -169,6 +170,7 @@ export class VesselEngine {
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerleave', this.onPointerLeave);
     this.canvas.removeEventListener('click', this.onClick);
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
   }
 
   // ───────────────────────────── публичное API
@@ -889,6 +891,11 @@ export class VesselEngine {
     const h = this.hit(e.clientX, e.clientY);
     this.canvas.style.cursor = h.key || h.spill ? 'pointer' : 'default';
     this.cb.onHover?.(h.key, e.clientX, e.clientY);
+  };
+
+  /** На телефоне наведения нет — тап показывает подсказку и подсветку пласта. */
+  private onPointerDown = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') this.onPointerMove(e);
   };
 
   private onPointerLeave = () => {
