@@ -1,0 +1,100 @@
+import { describe, expect, it } from 'vitest';
+import { computeDay, nearestFitDays, tasksForDate } from './day';
+import { emptyData } from './defaults';
+import { addTask, deleteTask, moveTask, toggleDone, updateTask } from './mutations';
+import type { AppData, TaskFields } from './types';
+
+// 2026-10-12 — понедельник, 2026-10-17 — суббота.
+const MON = '2026-10-12';
+const SAT = '2026-10-17';
+
+const fields = (over: Partial<TaskFields> = {}): TaskFields => ({
+  title: 'Зал', categoryId: 'sport', timing: { kind: 'duration', minutes: 120 },
+  priority: 'medium', location: 'home', attachments: [], subtasks: [], ...over,
+});
+
+const bare = (): AppData => ({ ...emptyData(), routine: [] });
+
+describe('computeDay', () => {
+  it('учитывает рутину по дням недели', () => {
+    const d = emptyData();
+    expect(computeDay(d, MON).total).toBe(8 * 60 + 90 + 60 + 8 * 60 + 60);
+    expect(computeDay(d, SAT).total).toBe(8 * 60 + 90 + 60);
+  });
+
+  it('делит интервал через полночь между днями', () => {
+    const d = addTask(bare(), fields({ timing: { kind: 'interval', start: 22 * 60, end: 60 } }), MON, null);
+    expect(computeDay(d, MON).total).toBe(120);
+    expect(computeDay(d, '2026-10-13').total).toBe(60);
+  });
+
+  it('добавляет скрытые затраты и буфер', () => {
+    let d = addTask(bare(), fields({
+      attachments: [{ kind: 'travel', label: 'Дорога', minutes: 30 }, { kind: 'recovery', label: 'Душ', minutes: 20 }],
+    }), MON, null);
+    expect(computeDay(d, MON).total).toBe(170);
+    d = { ...d, settings: { bufferMinutes: 10 } };
+    expect(computeDay(d, MON).total).toBe(180);
+  });
+});
+
+describe('серии', () => {
+  it('генерирует виртуальные экземпляры и материализует при отметке', () => {
+    let d = addTask(bare(), fields(), MON, { freq: 'daily' });
+    const [v] = tasksForDate(d, '2026-10-14');
+    expect(v.virtual).toBe(true);
+    d = toggleDone(d, v.id);
+    const [real] = tasksForDate(d, '2026-10-14');
+    expect(real.virtual).toBeUndefined();
+    expect(real.done).toBe(true);
+    expect(tasksForDate(d, '2026-10-15')[0].virtual).toBe(true);
+  });
+
+  it('материализованный экземпляр сохраняет id (пласт не перезаливается)', () => {
+    let d = addTask(bare(), fields(), MON, { freq: 'daily' });
+    const id = tasksForDate(d, MON)[0].id;
+    d = toggleDone(d, id);
+    expect(tasksForDate(d, MON)[0].id).toBe(id);
+    d = toggleDone(d, id);
+    expect(tasksForDate(d, MON)[0].done).toBe(false);
+  });
+
+  it('удаляет только один экземпляр', () => {
+    let d = addTask(bare(), fields(), MON, { freq: 'daily' });
+    d = deleteTask(d, tasksForDate(d, '2026-10-14')[0].id, 'this');
+    expect(tasksForDate(d, '2026-10-14')).toHaveLength(0);
+    expect(tasksForDate(d, '2026-10-15')).toHaveLength(1);
+  });
+
+  it('«этот и следующие» разрезает серию', () => {
+    let d = addTask(bare(), fields(), MON, { freq: 'daily' });
+    const id = tasksForDate(d, '2026-10-14')[0].id;
+    d = updateTask(d, id, fields({ title: 'Бассейн' }), undefined, 'following');
+    expect(tasksForDate(d, '2026-10-13')[0].title).toBe('Зал');
+    expect(tasksForDate(d, '2026-10-14')[0].title).toBe('Бассейн');
+    expect(tasksForDate(d, '2026-10-20')[0].title).toBe('Бассейн');
+    expect(tasksForDate(d, '2026-10-20')).toHaveLength(1);
+  });
+
+  it('по будням не появляется в субботу', () => {
+    const d = addTask(bare(), fields(), MON, { freq: 'weekly', weekdays: [0, 1, 2, 3, 4] });
+    expect(tasksForDate(d, SAT)).toHaveLength(0);
+    expect(tasksForDate(d, '2026-10-16')).toHaveLength(1);
+  });
+
+  it('перенос экземпляра не порождает дубль на старой дате', () => {
+    let d = addTask(bare(), fields(), MON, { freq: 'daily' });
+    d = moveTask(d, tasksForDate(d, '2026-10-14')[0].id, '2026-10-15');
+    expect(tasksForDate(d, '2026-10-14')).toHaveLength(0);
+    expect(tasksForDate(d, '2026-10-15')).toHaveLength(2);
+  });
+});
+
+describe('nearestFitDays', () => {
+  it('пропускает дни, куда задача не влезает', () => {
+    let d = bare();
+    d = addTask(d, fields({ timing: { kind: 'duration', minutes: 1400 } }), '2026-10-13', null);
+    const fit = nearestFitDays(d, fields(), MON, 2);
+    expect(fit.map((f) => f.date)).toEqual(['2026-10-14', '2026-10-15']);
+  });
+});
