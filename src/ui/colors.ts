@@ -1,6 +1,6 @@
 import { category } from '../domain/categories';
 import type { DayItem } from '../domain/day';
-import { particlesFor, type LayerSpec } from '../vessel/VesselEngine';
+import { grainsFor, type LayerSpec } from '../vessel/VesselEngine';
 
 function hex(c: string): [number, number, number] {
   const n = parseInt(c.slice(1), 16);
@@ -14,11 +14,11 @@ export function mix(a: string, b: string, t: number): string {
   return `#${m(r1, r2)}${m(g1, g2)}${m(b1, b2)}`;
 }
 
-/** Рутина — приглушённый фундамент; невыполненное — полупрозрачное; выполненное — плотное. */
+/** Рутина — приглушённый фундамент; невыполненное — блёклое; выполненное — яркое. */
 export function itemLayer(i: DayItem): LayerSpec {
   const base = category(i.categoryId).color;
   if (i.kind === 'routine') {
-    return { key: i.key, count: particlesFor(i.minutes), color: mix(base, '#2B2D36', 0.38), alpha: 1 };
+    return { key: i.key, count: grainsFor(i.minutes), color: mix(base, '#2B2D36', 0.38), alpha: 1 };
   }
-  return { key: i.key, count: particlesFor(i.minutes), color: base, alpha: i.done ? 1 : 0.5 };
+  return { key: i.key, count: grainsFor(i.minutes), color: base, alpha: i.done ? 1 : 0.5 };
 }
