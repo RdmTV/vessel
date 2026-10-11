@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addDays, formatDay, formatMinutes, todayKey } from './domain/dates';
+import { addDays, formatDay, formatDayShort, formatMinutes, todayKey } from './domain/dates';
 import { computeDay, taskItems, type DayItem, type DayTask } from './domain/day';
-import { useStore } from './store';
+import { addYears, ageYears, pluralYears } from './domain/life';
+import type { DateKey } from './domain/types';
+import { weekStart } from './domain/week';
+import { useStore, type View } from './store';
 import { itemLayer } from './ui/colors';
+import { Segmented } from './ui/common';
 import { Composer } from './ui/Composer';
+import { LifeView } from './ui/LifeView';
+import { Onboarding } from './ui/Onboarding';
 import { OverflowModal } from './ui/Resolution';
 import { RoutineModal } from './ui/RoutineModal';
 import { ScopeDialog } from './ui/ScopeDialog';
 import { SettingsModal } from './ui/SettingsModal';
 import { TaskList } from './ui/TaskList';
 import { VesselCanvas } from './ui/VesselCanvas';
+import { WeekView } from './ui/WeekView';
+import { YearView } from './ui/YearView';
 
 type ModalKind = 'routine' | 'settings' | 'overflow' | null;
 
@@ -17,16 +25,38 @@ const KIND_LABEL: Partial<Record<DayItem['kind'], string>> = {
   routine: 'рутина', travel: 'дорога', prep: 'невидимое', recovery: 'невидимое', buffer: 'невидимое',
 };
 
+const VIEWS: { value: View; label: string }[] = [
+  { value: 'life', label: 'Жизнь' },
+  { value: 'year', label: 'Год' },
+  { value: 'week', label: 'Неделя' },
+  { value: 'day', label: 'День' },
+];
+
+/** Шаг навигации ‹ › для каждого вида. */
+function shift(view: View, date: DateKey, dir: 1 | -1): DateKey {
+  if (view === 'week') return addDays(date, 7 * dir);
+  if (view === 'year') return addYears(date, dir);
+  return addDays(date, dir);
+}
+
 export function App() {
   const loaded = useStore((s) => s.loaded);
+  const hasProfile = useStore((s) => !!s.data.profile);
+  const view = useStore((s) => s.view);
   const [modal, setModal] = useState<ModalKind>(null);
   const close = useCallback(() => setModal(null), []);
 
   if (!loaded) return <div className="loading">…</div>;
+  if (!hasProfile) return <Onboarding />;
   return (
     <div className="app">
       <TopBar onRoutine={() => setModal('routine')} onSettings={() => setModal('settings')} />
-      <DayView onOverflow={() => setModal('overflow')} onRoutine={() => setModal('routine')} overflowOpen={modal === 'overflow'} onCloseOverflow={close} />
+      {view === 'life' && <LifeView />}
+      {view === 'year' && <YearView />}
+      {view === 'week' && <WeekView />}
+      {view === 'day' && (
+        <DayView onOverflow={() => setModal('overflow')} onRoutine={() => setModal('routine')} overflowOpen={modal === 'overflow'} onCloseOverflow={close} />
+      )}
       {modal === 'routine' && <RoutineModal onClose={close} />}
       {modal === 'settings' && <SettingsModal onClose={close} />}
       <ScopeDialog />
@@ -37,33 +67,53 @@ export function App() {
 
 function TopBar({ onRoutine, onSettings }: { onRoutine: () => void; onSettings: () => void }) {
   const date = useStore((s) => s.date);
+  const view = useStore((s) => s.view);
+  const profile = useStore((s) => s.data.profile);
   const setDate = useStore((s) => s.setDate);
-  const isToday = date === todayKey();
+  const setView = useStore((s) => s.setView);
+  const today = todayKey();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (document.activeElement?.tagName ?? '').toLowerCase();
       if (['input', 'textarea', 'select'].includes(tag) || document.querySelector('.modal')) return;
-      if (e.key === 'ArrowLeft') setDate(addDays(useStore.getState().date, -1));
-      if (e.key === 'ArrowRight') setDate(addDays(useStore.getState().date, 1));
+      const { view: v, date: d } = useStore.getState();
+      if (v === 'life') return;
+      if (e.key === 'ArrowLeft') setDate(shift(v, d, -1));
+      if (e.key === 'ArrowRight') setDate(shift(v, d, 1));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [setDate]);
 
+  const ws = weekStart(date);
+  const title = view === 'day' ? formatDay(date)
+    : view === 'week' ? `${formatDayShort(ws)} – ${formatDayShort(addDays(ws, 6))}`
+      : view === 'year' ? date.slice(0, 4)
+        : profile ? `Тебе ${pluralYears(ageYears(profile.birthDate, today))}` : '';
+  const isCurrent = view === 'day' ? date === today
+    : view === 'week' ? ws === weekStart(today)
+      : view === 'year' ? date.slice(0, 4) === today.slice(0, 4)
+        : true;
+
   return (
     <header className="topbar">
       <div className="brand"><span className="logo" />Vessel</div>
+      <Segmented small value={view} onChange={setView} options={VIEWS} />
       <div className="datenav">
-        <button type="button" className="icon-btn" onClick={() => setDate(addDays(date, -1))} aria-label="Предыдущий день">‹</button>
+        {view !== 'life' && (
+          <button type="button" className="icon-btn" onClick={() => setDate(shift(view, date, -1))} aria-label="Назад">‹</button>
+        )}
         <label className="date-title">
-          {formatDay(date)}
-          <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+          {title}
+          {view === 'day' && <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />}
         </label>
-        <button type="button" className="icon-btn" onClick={() => setDate(addDays(date, 1))} aria-label="Следующий день">›</button>
-        {isToday
-          ? <span className="today-badge">сегодня</span>
-          : <button type="button" className="chip" onClick={() => setDate(todayKey())}>К сегодня</button>}
+        {view !== 'life' && (
+          <button type="button" className="icon-btn" onClick={() => setDate(shift(view, date, 1))} aria-label="Вперёд">›</button>
+        )}
+        {view !== 'life' && (isCurrent
+          ? <span className="today-badge">{view === 'day' ? 'сегодня' : view === 'week' ? 'эта неделя' : 'этот год'}</span>
+          : <button type="button" className="chip" onClick={() => setDate(today)}>К сегодня</button>)}
       </div>
       <div className="topbar-actions">
         <button type="button" className="btn ghost" onClick={onRoutine}>Рутина</button>
@@ -138,7 +188,7 @@ function DayView({ onOverflow, onRoutine, overflowOpen, onCloseOverflow }: {
             : <Stat label="Свободно" value={plan.free} accent />}
         </div>
         <VesselCanvas
-          date={date}
+          sceneKey={date}
           layers={layers}
           draft={draftLayers}
           labels={labels}

@@ -38,7 +38,8 @@ const MONTHS_GEN = [
 
 export function formatDay(key: DateKey): string {
   const d = fromKey(key);
-  return `${WEEKDAYS_SHORT[weekday(key)]}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`;
+  const year = d.getFullYear() === new Date().getFullYear() ? '' : ` ${d.getFullYear()}`;
+  return `${WEEKDAYS_SHORT[weekday(key)]}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}${year}`;
 }
 
 export function formatDayShort(key: DateKey): string {

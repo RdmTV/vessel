@@ -86,6 +86,12 @@ export interface Settings {
   bufferMinutes: number;
 }
 
+export interface Profile {
+  birthDate: DateKey;
+  /** Ожидаемая продолжительность жизни, лет. */
+  lifeYears: number;
+}
+
 export interface AppData {
   version: 1;
   tasks: Task[];
@@ -94,4 +100,6 @@ export interface AppData {
   /** Переопределения рутины на конкретный день: itemId → минуты (0 = пропустить). */
   routineOverrides: Record<DateKey, Record<string, number>>;
   settings: Settings;
+  /** Нет профиля — показываем онбординг. */
+  profile?: Profile;
 }

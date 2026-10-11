@@ -38,8 +38,34 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const profile = data.profile;
+  const setProfile = (p: Partial<NonNullable<AppData['profile']>>) =>
+    apply((d) => (d.profile ? { ...d, profile: { ...d.profile, ...p } } : d));
+
   return (
     <Modal title="Настройки" onClose={onClose}>
+      {profile && (
+        <div className="setting">
+          <div>
+            <div>Сетка жизни</div>
+            <div className="muted small">Дата рождения и сколько лет считать.</div>
+          </div>
+          <div className="row-gap">
+            <input
+              type="date" value={profile.birthDate} max={todayKey()}
+              onChange={(e) => e.target.value && setProfile({ birthDate: e.target.value })}
+            />
+            <input
+              type="number" className="num" min={30} max={120} value={profile.lifeYears}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (n >= 30 && n <= 120) setProfile({ lifeYears: n });
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="setting">
         <div>
           <div>Переключение между задачами</div>

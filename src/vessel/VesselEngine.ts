@@ -8,10 +8,20 @@ export const GRID = 240;
 export const CAPACITY = GRID * GRID;
 export const GRAINS_PER_MINUTE = CAPACITY / (24 * 60);
 
-export function grainsFor(minutes: number): number {
+export function grainsFor(minutes: number, scaleHours = 24): number {
   if (minutes <= 0) return 0;
-  return Math.max(1, Math.round(minutes * GRAINS_PER_MINUTE));
+  return Math.max(1, Math.round((minutes * CAPACITY) / (scaleHours * 60)));
 }
+
+/** Шкала на стенке: сколько часов вмещает сосуд и как часто подписывать. */
+export interface VesselScale {
+  hours: number;
+  major: number;
+  minor: number;
+}
+
+export const DAY_SCALE: VesselScale = { hours: 24, major: 6, minor: 1 };
+export const WEEK_SCALE: VesselScale = { hours: 168, major: 24, minor: 6 };
 
 export interface LayerSpec {
   key: string;
@@ -136,6 +146,7 @@ export class VesselEngine {
   private draft: LayerSpec[] | null = null;
   private labels: VesselLabels = { free: '', overflow: null };
   private highlight: string | null = null;
+  private scale: VesselScale = DAY_SCALE;
 
   private raf = 0;
   private destroyed = false;
@@ -204,6 +215,10 @@ export class VesselEngine {
 
   setLabels(labels: VesselLabels) {
     this.labels = labels;
+  }
+
+  setScale(scale: VesselScale) {
+    this.scale = scale;
   }
 
   setHighlight(key: string | null) {
@@ -744,10 +759,11 @@ export class VesselEngine {
     ctx.font = '500 11px system-ui, -apple-system, Segoe UI, sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    const hourPx = (GRID / 24) * g.px;
-    for (let h = 0; h <= 24; h++) {
+    const { hours, major: majorStep, minor } = this.scale;
+    const hourPx = (GRID / hours) * g.px;
+    for (let h = 0; h <= hours; h += minor) {
       const y = Math.round(g.bottom - h * hourPx) + 0.5;
-      const major = h % 6 === 0;
+      const major = h % majorStep === 0;
       ctx.strokeStyle = major ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.12)';
       ctx.lineWidth = 1;
       ctx.beginPath();

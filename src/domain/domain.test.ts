@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeDay, nearestFitDays, tasksForDate } from './day';
+import { computeDay, dayLoad, nearestFitDays, tasksForDate } from './day';
 import { emptyData } from './defaults';
+import { ageYears, lifeEnd, lifeStats, pluralDays } from './life';
+import { aggregateWeek, weekDays, weekStart } from './week';
 import { addTask, deleteTask, moveTask, toggleDone, updateTask } from './mutations';
 import type { AppData, TaskFields } from './types';
 
@@ -87,6 +89,60 @@ describe('серии', () => {
     d = moveTask(d, tasksForDate(d, '2026-10-14')[0].id, '2026-10-15');
     expect(tasksForDate(d, '2026-10-14')).toHaveLength(0);
     expect(tasksForDate(d, '2026-10-15')).toHaveLength(2);
+  });
+});
+
+describe('жизнь', () => {
+  const p = { birthDate: '1990-03-15', lifeYears: 80 };
+
+  it('считает конец жизни и возраст', () => {
+    expect(lifeEnd(p)).toBe('2070-03-14');
+    expect(ageYears(p.birthDate, '2026-03-14')).toBe(35);
+    expect(ageYears(p.birthDate, '2026-03-15')).toBe(36);
+  });
+
+  it('прожито + осталось = всего', () => {
+    const s = lifeStats(p, MON);
+    expect(s.lived + s.left).toBe(s.total);
+    expect(s.total).toBe(29220); // 80 лет с 20 високосными
+  });
+
+  it('склоняет дни', () => {
+    expect(pluralDays(1)).toMatch(/1 день/);
+    expect(pluralDays(3)).toMatch(/3 дня/);
+    expect(pluralDays(11)).toMatch(/11 дней/);
+    expect(pluralDays(22)).toMatch(/22 дня/);
+  });
+});
+
+describe('неделя', () => {
+  it('начинается с понедельника', () => {
+    expect(weekStart('2026-10-15')).toBe(MON);
+    expect(weekStart('2026-10-18')).toBe(MON);
+    expect(weekStart(MON)).toBe(MON);
+  });
+
+  it('группирует по категориям и сохраняет сумму', () => {
+    let d = emptyData();
+    d = addTask(d, fields(), MON, null);
+    d = addTask(d, fields({ title: 'Бассейн' }), '2026-10-14', null);
+    d = toggleDone(d, tasksForDate(d, MON)[0].id);
+    const w = aggregateWeek(d, MON);
+    const daysTotal = weekDays(MON).reduce((s, day) => s + computeDay(d, day).total, 0);
+    expect(w.total).toBe(daysTotal);
+    expect(w.groups.find((g) => g.key === 'wd:sport')?.minutes).toBe(120);
+    expect(w.groups.find((g) => g.key === 'wp:sport')?.minutes).toBe(120);
+    expect(w.groups[0].kind).toBe('routine');
+  });
+});
+
+describe('dayLoad', () => {
+  it('отделяет рутину от запланированного', () => {
+    const d = addTask(emptyData(), fields(), SAT, null);
+    const l = dayLoad(d, SAT);
+    expect(l.routine).toBe(8 * 60 + 90 + 60);
+    expect(l.planned).toBe(120);
+    expect(l.hasPlan).toBe(true);
   });
 });
 

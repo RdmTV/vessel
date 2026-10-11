@@ -64,12 +64,30 @@ export function minutesOnStartDay(t: Timing): number {
   return crossesMidnight(t) ? DAY_CAPACITY - t.start : intervalLength(t.start, t.end);
 }
 
+// Индекс задач по датам. Данные неизменяемые, поэтому кэш по ссылке на AppData корректен.
+const byDateCache = new WeakMap<AppData, Map<DateKey, Task[]>>();
+
+function tasksByDate(data: AppData): Map<DateKey, Task[]> {
+  let m = byDateCache.get(data);
+  if (!m) {
+    m = new Map();
+    for (const t of data.tasks) {
+      const arr = m.get(t.date);
+      if (arr) arr.push(t);
+      else m.set(t.date, [t]);
+    }
+    byDateCache.set(data, m);
+  }
+  return m;
+}
+
 export function tasksForDate(data: AppData, date: DateKey): DayTask[] {
-  const result: DayTask[] = data.tasks.filter((t) => t.date === date);
+  const result: DayTask[] = [...(tasksByDate(data).get(date) ?? [])];
   for (const s of data.series) {
     if (!occursVirtually(s, date)) continue;
+    // Без глубокого копирования: данные неизменяемые, а сетки жизни считают тысячи дней.
     result.push({
-      ...structuredClone(s.template),
+      ...s.template,
       id: virtualId(s.id, date),
       date,
       done: false,
@@ -171,6 +189,24 @@ export function computeDay(data: AppData, date: DateKey): DayPlan {
     free: Math.max(0, DAY_CAPACITY - total),
     overflow: Math.max(0, total - DAY_CAPACITY),
   };
+}
+
+/** Сводка дня для сеток: рутина отдельно от запланированного. */
+export interface DayLoad {
+  routine: number;
+  planned: number;
+  total: number;
+  overflow: number;
+  /** Есть ли в дне что-то кроме рутины. */
+  hasPlan: boolean;
+}
+
+export function dayLoad(data: AppData, date: DateKey): DayLoad {
+  const plan = computeDay(data, date);
+  let routine = 0;
+  for (const i of plan.items) if (i.kind === 'routine') routine += i.minutes;
+  const planned = plan.total - routine;
+  return { routine, planned, total: plan.total, overflow: plan.overflow, hasPlan: planned > 0 };
 }
 
 /** Сколько минут черновик займёт в своём дне. */

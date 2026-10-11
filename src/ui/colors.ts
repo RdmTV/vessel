@@ -1,6 +1,9 @@
 import { category } from '../domain/categories';
 import type { DayItem } from '../domain/day';
-import { grainsFor, type LayerSpec } from '../vessel/VesselEngine';
+import type { WeekGroup } from '../domain/week';
+import { grainsFor, WEEK_SCALE, type LayerSpec } from '../vessel/VesselEngine';
+
+export const ROUTINE_TINT = '#2B2D36';
 
 function hex(c: string): [number, number, number] {
   const n = parseInt(c.slice(1), 16);
@@ -18,7 +21,15 @@ export function mix(a: string, b: string, t: number): string {
 export function itemLayer(i: DayItem): LayerSpec {
   const base = category(i.categoryId).color;
   if (i.kind === 'routine') {
-    return { key: i.key, count: grainsFor(i.minutes), color: mix(base, '#2B2D36', 0.38), alpha: 1 };
+    return { key: i.key, count: grainsFor(i.minutes), color: mix(base, ROUTINE_TINT, 0.38), alpha: 1 };
   }
   return { key: i.key, count: grainsFor(i.minutes), color: base, alpha: i.done ? 1 : 0.5 };
+}
+
+/** Пласт недельного сосуда — те же правила цвета, шкала 168 часов. */
+export function weekGroupLayer(g: WeekGroup): LayerSpec {
+  const base = category(g.categoryId).color;
+  const count = grainsFor(g.minutes, WEEK_SCALE.hours);
+  if (g.kind === 'routine') return { key: g.key, count, color: mix(base, ROUTINE_TINT, 0.38), alpha: 1 };
+  return { key: g.key, count, color: base, alpha: g.kind === 'done' ? 1 : 0.5 };
 }

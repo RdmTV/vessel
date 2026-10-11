@@ -1,22 +1,25 @@
 import { useEffect, useRef } from 'react';
-import { VesselEngine, type LayerSpec, type VesselCallbacks, type VesselLabels } from '../vessel/VesselEngine';
+import {
+  DAY_SCALE, VesselEngine, type LayerSpec, type VesselCallbacks, type VesselLabels, type VesselScale,
+} from '../vessel/VesselEngine';
 
 interface Props extends VesselCallbacks {
-  /** Смена дня — сосуд наливается заново. */
-  date: string;
+  /** Смена сцены (другой день или неделя) — сосуд насыпается заново. */
+  sceneKey: string;
   layers: LayerSpec[];
-  draft: LayerSpec[] | null;
+  draft?: LayerSpec[] | null;
   labels: VesselLabels;
   highlight: string | null;
+  scale?: VesselScale;
 }
 
-export function VesselCanvas({ date, layers, draft, labels, highlight, ...callbacks }: Props) {
+export function VesselCanvas({ sceneKey, layers, draft = null, labels, highlight, scale = DAY_SCALE, ...callbacks }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<VesselEngine | null>(null);
   const cbRef = useRef(callbacks);
   cbRef.current = callbacks;
-  const shown = useRef<{ date: string | null; sig: string }>({ date: null, sig: '' });
+  const shown = useRef<{ scene: string | null; sig: string }>({ scene: null, sig: '' });
 
   useEffect(() => {
     const engine = new VesselEngine(canvasRef.current!, {
@@ -25,7 +28,7 @@ export function VesselCanvas({ date, layers, draft, labels, highlight, ...callba
       onSpillClick: () => cbRef.current.onSpillClick?.(),
     });
     engineRef.current = engine;
-    shown.current = { date: null, sig: '' };
+    shown.current = { scene: null, sig: '' };
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       engine.resize(width, height);
@@ -38,14 +41,17 @@ export function VesselCanvas({ date, layers, draft, labels, highlight, ...callba
     };
   }, []);
 
+  // Шкала задаётся до слоёв: от неё зависит отрисовка.
+  useEffect(() => engineRef.current?.setScale(scale), [scale]);
+
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
     const sig = JSON.stringify(layers);
-    if (shown.current.date !== date) engine.setLayers(layers, 'open');
+    if (shown.current.scene !== sceneKey) engine.setLayers(layers, 'open');
     else if (shown.current.sig !== sig) engine.setLayers(layers, 'diff');
-    shown.current = { date, sig };
-  }, [date, layers]);
+    shown.current = { scene: sceneKey, sig };
+  }, [sceneKey, layers]);
 
   useEffect(() => engineRef.current?.setDraft(draft), [draft]);
   useEffect(() => engineRef.current?.setLabels(labels), [labels]);

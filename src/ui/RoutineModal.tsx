@@ -9,6 +9,15 @@ import { DurationPicker, Modal, WeekdayPicker } from './common';
 const ROUTINE_QUICK = [30, 60, 90, 120, 480, 540];
 
 export function RoutineModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="Шаблон рутины" onClose={onClose} wide>
+      <RoutineEditor />
+    </Modal>
+  );
+}
+
+/** Редактор шаблона рутины — в модалке и в онбординге. */
+export function RoutineEditor() {
   const routine = useStore((s) => s.data.routine);
   const apply = useStore((s) => s.apply);
 
@@ -22,7 +31,7 @@ export function RoutineModal({ onClose }: { onClose: () => void }) {
   const weekendTotal = totalFor(5);
 
   return (
-    <Modal title="Шаблон рутины" onClose={onClose} wide>
+    <>
       <p className="lead">
         Это фундамент каждого дня — он уже лежит на дне сосуда.
         Будни: <b>{formatMinutes(weekdayTotal)}</b> → свободно {formatMinutes(DAY_CAPACITY - weekdayTotal)}.
@@ -50,6 +59,6 @@ export function RoutineModal({ onClose }: { onClose: () => void }) {
       >
         + Пункт рутины
       </button>
-    </Modal>
+    </>
   );
 }

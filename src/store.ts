@@ -17,10 +17,14 @@ export interface ScopeAsk {
   resolve: (scope: EditScope | null) => void;
 }
 
+export type View = 'life' | 'year' | 'week' | 'day';
+
 interface State {
   data: AppData;
   loaded: boolean;
+  /** Выбранный день — общий для всех видов (год и неделя показывают то, что вокруг него). */
   date: DateKey;
+  view: View;
   /** Черновик новой задачи — призрачный контур в сосуде. */
   draft: TaskFields | null;
   /** Ключ подсвеченного пласта: `t:<taskId>` или `r:<routineId>`. */
@@ -31,6 +35,9 @@ interface State {
   scopeAsk: ScopeAsk | null;
 
   setDate: (d: DateKey) => void;
+  setView: (v: View) => void;
+  /** Открыть конкретный день. */
+  openDay: (d: DateKey) => void;
   apply: (fn: (d: AppData) => AppData) => void;
   setDraft: (f: TaskFields | null) => void;
   setHighlight: (k: string | null) => void;
@@ -46,6 +53,7 @@ export const useStore = create<State>((set, get) => ({
   data: emptyData(),
   loaded: false,
   date: todayKey(),
+  view: 'day',
   draft: null,
   highlight: null,
   expandedTask: null,
@@ -53,6 +61,8 @@ export const useStore = create<State>((set, get) => ({
   scopeAsk: null,
 
   setDate: (date) => set({ date, highlight: null, expandedTask: null }),
+  setView: (view) => set({ view, highlight: null }),
+  openDay: (date) => set({ date, view: 'day', highlight: null, expandedTask: null }),
   apply: (fn) => set({ data: fn(get().data) }),
   setDraft: (draft) => set({ draft }),
   setHighlight: (highlight) => {
@@ -77,6 +87,8 @@ export const useStore = create<State>((set, get) => ({
       });
     }),
 }));
+
+if (import.meta.env.DEV) (window as unknown as { __store: typeof useStore }).__store = useStore;
 
 // ───────────── сохранение
 
