@@ -4,17 +4,22 @@ import { formatDayShort, formatMinutes, todayKey } from '../domain/dates';
 import { DAY_CAPACITY } from '../domain/day';
 import { uid } from '../domain/id';
 import { clearRoutineOverrides, routineOverridesFrom } from '../domain/mutations';
+import { jobsOf } from '../domain/work';
 import type { DateKey, Parallel, RoutineItem } from '../domain/types';
 import { useStore } from '../store';
 import { DurationPicker, Modal, WeekdayPicker } from './common';
 import { ParallelForm } from './Parallel';
+import { JobsEditor } from './Work';
 
 const ROUTINE_QUICK = [30, 60, 90, 120, 480, 540];
 
 export function RoutineModal({ onClose }: { onClose: () => void }) {
   return (
-    <Modal title="Шаблон рутины" onClose={onClose} wide>
+    <Modal title="Рутина и работа" onClose={onClose} wide>
+      <h3 className="modal-section">Рутина — тело и быт</h3>
       <RoutineEditor />
+      <h3 className="modal-section">Работа</h3>
+      <JobsEditor />
     </Modal>
   );
 }
@@ -77,16 +82,18 @@ export function RoutineEditor() {
   const patch = (id: string, p: Partial<RoutineItem>) =>
     setRoutine((r) => r.map((x) => (x.id === id ? { ...x, ...p } : x)));
 
-  const totalFor = (wd: number) => routine.filter((r) => r.weekdays.includes(wd)).reduce((s, r) => s + r.minutes, 0);
+  // Рутина + блок работы и дорога по графику: столько уходит в обычный будний/выходной день.
+  const totalFor = (wd: number) => routine.filter((r) => r.weekdays.includes(wd)).reduce((s, r) => s + r.minutes, 0)
+    + jobsOf(data).filter((j) => j.kind === 'fixed' && j.weekdays.includes(wd)).reduce((s, j) => s + j.minutes + j.commuteMinutes, 0);
   const weekdayTotal = totalFor(0);
   const weekendTotal = totalFor(5);
 
   return (
     <>
       <p className="lead">
-        Это фундамент каждого дня — он уже лежит на дне сосуда.
-        Будни: <b>{formatMinutes(weekdayTotal)}</b> → свободно {formatMinutes(DAY_CAPACITY - weekdayTotal)}.
-        Выходные: <b>{formatMinutes(weekendTotal)}</b> → свободно {formatMinutes(DAY_CAPACITY - weekendTotal)}.
+        Это фундамент каждого дня — он уже лежит на дне сосуда. Вместе с работой:
+        будни <b>{formatMinutes(weekdayTotal)}</b> → свободно {formatMinutes(DAY_CAPACITY - weekdayTotal)},
+        выходные <b>{formatMinutes(weekendTotal)}</b> → свободно {formatMinutes(DAY_CAPACITY - weekendTotal)}.
       </p>
       <div className="routine-edit-list">
         {routine.map((r) => (

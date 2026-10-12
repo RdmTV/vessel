@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { todayKey } from '../domain/dates';
 import { emptyData } from '../domain/defaults';
 import type { AppData } from '../domain/types';
+import { migrateData } from '../domain/work';
 import { useStore } from '../store';
 import { Modal, Segmented } from './common';
 
@@ -30,7 +31,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       const parsed: unknown = JSON.parse(await file.text());
       if (!isAppData(parsed)) throw new Error('format');
       if (!confirm('Заменить все текущие данные данными из файла?')) return;
-      useStore.setState({ data: parsed });
+      useStore.setState({ data: migrateData(parsed) });
       showToast({ text: 'Данные загружены' });
       onClose();
     } catch {

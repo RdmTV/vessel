@@ -19,16 +19,17 @@ export function mix(a: string, b: string, t: number): string {
 
 /** Рутина — приглушённый фундамент; невыполненное — блёклое; выполненное — яркое. */
 export function itemLayer(i: DayItem): LayerSpec {
-  const base = category(i.categoryId).color;
-  const layer: LayerSpec = i.kind === 'routine'
-    ? { key: i.key, count: grainsFor(i.minutes), color: mix(base, ROUTINE_TINT, 0.38), alpha: 1 }
+  const base = i.color ?? category(i.categoryId).color;
+  // Основание: рутина и незанятая часть рабочего блока — приглушённые (блок чуть ярче рутины).
+  const layer: LayerSpec = i.kind === 'routine' || i.kind === 'job'
+    ? { key: i.key, count: grainsFor(i.minutes), color: mix(base, ROUTINE_TINT, i.kind === 'job' ? 0.28 : 0.38), alpha: 1 }
     : { key: i.key, count: grainsFor(i.minutes), color: base, alpha: i.done ? 1 : 0.5 };
   // Оборот — крапинки цвета второго дела внутри того же пласта.
   if (i.parallel && i.minutes > 0) {
     layer.accent = {
       color: category(i.parallel.categoryId).color,
       share: i.parallel.minutes / i.minutes,
-      alpha: i.kind === 'routine' || i.parallel.done ? 1 : 0.5,
+      alpha: i.kind === 'routine' || i.kind === 'job' || i.parallel.done ? 1 : 0.5,
     };
   }
   return layer;

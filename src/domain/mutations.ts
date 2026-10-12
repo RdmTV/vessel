@@ -13,9 +13,10 @@ export type EditScope = 'this' | 'following';
 const cloneFields = (f: TaskFields): TaskFields => structuredClone(f);
 
 function pickFields(t: TaskFields): TaskFields {
-  const { title, categoryId, timing, priority, location, attachments, subtasks, goalId, parallel } = t;
+  const { title, categoryId, timing, priority, location, attachments, subtasks, goalId, parallel, jobId } = t;
   const fields: TaskFields = cloneFields({ title, categoryId, timing, priority, location, attachments, subtasks });
   if (goalId) fields.goalId = goalId;
+  if (jobId) fields.jobId = jobId;
   if (parallel) fields.parallel = structuredClone(parallel);
   return fields;
 }

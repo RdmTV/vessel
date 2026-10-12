@@ -45,7 +45,9 @@ export function aggregateWeek(data: AppData, start: DateKey): WeekPlan {
   const sums = new Map<string, WeekGroup>();
   for (const day of days) {
     for (const item of day.items) {
-      const kind: WeekGroupKind = item.kind === 'routine' ? 'routine' : item.done ? 'done' : 'planned';
+      // Основание недели: рутина, незанятый блок работы и дорога на работу.
+      const base = item.kind === 'routine' || item.kind === 'job' || (item.kind === 'travel' && !!item.jobId && !item.taskId);
+      const kind: WeekGroupKind = base ? 'routine' : item.done ? 'done' : 'planned';
       const key = `${PREFIX[kind]}:${item.categoryId}`;
       const g = sums.get(key);
       if (g) g.minutes += item.minutes;

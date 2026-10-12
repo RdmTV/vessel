@@ -12,6 +12,7 @@ import type { DateKey } from '../domain/types';
 import { useStore } from '../store';
 import { mix } from './colors';
 import { ParallelSlot } from './Parallel';
+import { WorkGroup } from './Work';
 
 const PRIO_MARK = { high: '!!', medium: '!', low: '' } as const;
 const ATTACHMENT_KINDS = ['travel', 'prep', 'recovery'];
@@ -29,13 +30,18 @@ const startOf = (t: DayTask) => (t.timing.kind === 'interval' ? t.timing.start :
 export function TaskList({ plan, date, onEdit, onOpenRoutine }: {
   plan: DayPlan; date: DateKey; onEdit: (t: DayTask) => void; onOpenRoutine: () => void;
 }) {
-  const tasks = sortTasks(plan.tasks);
+  const data = useStore((s) => s.data);
+  // Рабочие задачи и проекты фриланса живут в разделе «Работа», здесь — только своё.
+  const projectIds = new Set((data.goals ?? []).filter((g) => g.jobId).map((g) => g.id));
+  const personal = plan.tasks.filter((t) => !t.jobId && !(t.goalId && projectIds.has(t.goalId)));
+  const tasks = sortTasks(personal);
   const carry = plan.items.filter((i) => i.kind === 'carry');
-  const doneCount = plan.tasks.filter((t) => t.done).length;
+  const doneCount = personal.filter((t) => t.done).length;
 
   return (
     <div className="tasklist">
       <RoutineGroup date={date} plan={plan} onOpenRoutine={onOpenRoutine} />
+      <WorkGroup plan={plan} date={date} onEdit={onEdit} onOpenWork={onOpenRoutine} />
 
       {carry.length > 0 && (
         <div className="group">
@@ -52,8 +58,8 @@ export function TaskList({ plan, date, onEdit, onOpenRoutine }: {
 
       <div className="group">
         <div className="group-head">
-          <span>Задачи</span>
-          {plan.tasks.length > 0 && <span className="muted">{doneCount} / {plan.tasks.length}</span>}
+          <span>Своё</span>
+          {personal.length > 0 && <span className="muted">{doneCount} / {personal.length}</span>}
         </div>
         {tasks.length === 0 && <div className="empty">Пока пусто. Добавь первое дело — и посмотри, сколько места оно займёт.</div>}
         {tasks.map((t) => <TaskCard key={t.id} task={t} plan={plan} date={date} onEdit={onEdit} />)}
@@ -66,7 +72,7 @@ export function TaskList({ plan, date, onEdit, onOpenRoutine }: {
  * Карточка задачи. Лицевая сторона — само дело, оборотная — что делаю параллельно
  * (во время дела и во время его дороги/сборов). Переворот — кнопкой ⇄.
  */
-function TaskCard({ task, plan, date, onEdit }: { task: DayTask; plan: DayPlan; date: DateKey; onEdit: (t: DayTask) => void }) {
+export function TaskCard({ task, plan, date, onEdit }: { task: DayTask; plan: DayPlan; date: DateKey; onEdit: (t: DayTask) => void }) {
   const data = useStore((s) => s.data);
   const apply = useStore((s) => s.apply);
   const highlight = useStore((s) => s.highlight);

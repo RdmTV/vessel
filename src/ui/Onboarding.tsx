@@ -5,6 +5,7 @@ import type { Profile } from '../domain/types';
 import { useStore } from '../store';
 import { LifeGrid } from './LifeGrid';
 import { RoutineEditor } from './RoutineModal';
+import { JobsEditor } from './Work';
 
 type Step = 'birth' | 'life' | 'routine';
 
@@ -58,6 +59,9 @@ export function Onboarding() {
           <h2>Что у тебя каждый день?</h2>
           <p className="muted">Средние значения уже подставлены — поправь под себя. Это дно каждого сосуда.</p>
           <RoutineEditor />
+          <h2>Работа</h2>
+          <p className="muted">Блок по графику: рабочие задачи потом заполняют его изнутри. Если работы нет — убери все дни недели.</p>
+          <JobsEditor />
           <div className="ob-actions">
             <button type="button" className="btn ghost" onClick={() => setStep('life')}>Назад</button>
             <button type="button" className="btn primary" onClick={finish}>Открыть сегодняшний день</button>

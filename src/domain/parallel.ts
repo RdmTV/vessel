@@ -2,6 +2,7 @@ import { category } from './categories';
 import { minutesOnStartDay, type DayItem, type DayPlan, type DayTask } from './day';
 import { addTask, deleteTask, patchTask, shortenFields, updateTask } from './mutations';
 import type { AppData, AttachmentKind, DateKey, Parallel } from './types';
+import { jobParallelKey } from './work';
 
 /**
  * Обороты: второе дело внутри пласта первого (бег + подкаст).
@@ -12,7 +13,9 @@ import type { AppData, AttachmentKind, DateKey, Parallel } from './types';
 export type ParallelTarget =
   | { kind: 'task'; taskId: string }
   | { kind: 'attachment'; taskId: string; attachment: AttachmentKind }
-  | { kind: 'routine'; routineId: string; date: DateKey };
+  | { kind: 'routine'; routineId: string; date: DateKey }
+  /** Во время работы (незанятая часть блока) или в дороге на работу — на конкретный день. */
+  | { kind: 'job'; jobId: string; part: 'block' | 'travel'; date: DateKey };
 
 export function targetOf(item: DayItem, date: DateKey): ParallelTarget | null {
   if (item.kind === 'task' && item.taskId) return { kind: 'task', taskId: item.taskId };
@@ -20,6 +23,8 @@ export function targetOf(item: DayItem, date: DateKey): ParallelTarget | null {
     return { kind: 'attachment', taskId: item.taskId, attachment: item.kind };
   }
   if (item.kind === 'routine' && item.routineId) return { kind: 'routine', routineId: item.routineId, date };
+  if (item.kind === 'job' && item.jobId) return { kind: 'job', jobId: item.jobId, part: 'block', date };
+  if (item.kind === 'travel' && item.jobId) return { kind: 'job', jobId: item.jobId, part: 'travel', date };
   return null;
 }
 
@@ -40,6 +45,11 @@ export function setParallel(data: AppData, target: ParallelTarget, p: Parallel |
         return p ? { ...rest, parallel: p } : rest;
       }),
     }));
+  }
+  if (target.kind === 'job') {
+    const key = jobParallelKey(target.jobId, target.part);
+    const day = { ...(data.jobParallel?.[target.date] ?? {}), [key]: p };
+    return { ...data, jobParallel: { ...(data.jobParallel ?? {}), [target.date]: day } };
   }
   const day = { ...(data.routineParallel?.[target.date] ?? {}), [target.routineId]: p };
   return { ...data, routineParallel: { ...(data.routineParallel ?? {}), [target.date]: day } };

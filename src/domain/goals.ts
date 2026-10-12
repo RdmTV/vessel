@@ -15,7 +15,13 @@ export interface GoalInput {
   end: DateKey;
   /** Резерв времени «N минут в эти дни недели» — пласт цели в каждом дне. */
   reserve: { minutes: number; weekdays: number[] } | null;
+  /** Проект фриланса: источник работы и оценка часов. */
+  jobId?: string;
+  estimate?: number;
 }
+
+/** Проекты (заказы) — цели, привязанные к источнику работы. */
+export const isProject = (g: Goal) => !!g.jobId;
 
 export const goalsOf = (data: AppData): Goal[] => data.goals ?? [];
 
@@ -59,10 +65,8 @@ function reserveSeries(goalId: string, input: GoalInput, today: DateKey): Series
   };
 }
 
-export function addGoal(data: AppData, input: GoalInput, today: DateKey): AppData {
-  const id = uid();
-  const series = reserveSeries(id, input, today);
-  const goal: Goal = {
+function goalFrom(id: string, input: GoalInput, series: Series | null): Goal {
+  return {
     id,
     title: input.title,
     categoryId: input.categoryId,
@@ -70,7 +74,15 @@ export function addGoal(data: AppData, input: GoalInput, today: DateKey): AppDat
     start: input.start,
     end: input.end,
     ...(series ? { seriesId: series.id, reserve: input.reserve! } : {}),
+    ...(input.jobId ? { jobId: input.jobId } : {}),
+    ...(input.estimate ? { estimate: input.estimate } : {}),
   };
+}
+
+export function addGoal(data: AppData, input: GoalInput, today: DateKey): AppData {
+  const id = uid();
+  const series = reserveSeries(id, input, today);
+  const goal = goalFrom(id, input, series);
   return {
     ...data,
     goals: [...goalsOf(data), goal],
@@ -85,15 +97,7 @@ export function updateGoal(data: AppData, id: string, input: GoalInput, today: D
   // Старый резерв заканчиваем с сегодняшнего дня (прошлое не трогаем) и заводим новый.
   if (old.seriesId) next = endSeriesFrom(next, old.seriesId, today);
   const series = reserveSeries(id, input, today);
-  const goal: Goal = {
-    id,
-    title: input.title,
-    categoryId: input.categoryId,
-    color: input.color,
-    start: input.start,
-    end: input.end,
-    ...(series ? { seriesId: series.id, reserve: input.reserve! } : {}),
-  };
+  const goal = goalFrom(id, input, series);
   return {
     ...next,
     goals: goalsOf(next).map((g) => (g.id === id ? goal : g)),
@@ -146,6 +150,19 @@ export function goalStats(data: AppData, goal: Goal, from = goal.start, to = goa
     }
   }
   return { planned, done };
+}
+
+/**
+ * Сколько в день нужно на проект, чтобы успеть к дедлайну: остаток оценки / оставшиеся дни (с сегодняшнего).
+ */
+export function projectPace(data: AppData, goal: Goal, today: DateKey): { done: number; left: number; daysLeft: number; perDay: number } {
+  const done = goalStats(data, goal, goal.start, addDays(today, -1)).done
+    + goalStats(data, goal, today, today).done;
+  const left = Math.max(0, (goal.estimate ?? 0) - done);
+  const from = today > goal.start ? today : goal.start;
+  let daysLeft = 0;
+  for (let d = from; d <= goal.end; d = addDays(d, 1)) daysLeft++;
+  return { done, left, daysLeft, perDay: daysLeft ? Math.ceil(left / daysLeft / 5) * 5 : left };
 }
 
 /**

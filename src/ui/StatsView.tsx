@@ -65,6 +65,9 @@ export function StatsView() {
           sub={st.checkinCount ? `чек-инов: ${st.checkinCount}` : 'чек-инов не было'}
         />
         <Tile label="Переполнено дней" value={String(st.classes.over)} sub={st.classes.over ? 'что-то выпало из сосуда' : 'всё влезало'} danger={st.classes.over > 0} />
+        {st.overtimeTotal > 0 && (
+          <Tile label="Переработка" value={formatMinutes(st.overtimeTotal)} sub="рабочие задачи сверх блока работы" danger />
+        )}
         <Tile
           label="Прожито дважды"
           value={formatMinutes(st.twiceTotal)}

@@ -2,8 +2,9 @@ import { ATTACHMENT_CATEGORY } from './categories';
 import { addDays, weekday } from './dates';
 import { occursVirtually } from './recurrence';
 import type {
-  AppData, AttachmentKind, DateKey, Parallel, Priority, RoutineItem, Task, TaskFields, Timing,
+  AppData, AttachmentKind, DateKey, Job, Parallel, Priority, RoutineItem, Task, TaskFields, Timing,
 } from './types';
+import { blockMinutes, jobParallelOn, jobsOf } from './work';
 
 export const DAY_CAPACITY = 24 * 60;
 
@@ -12,7 +13,8 @@ export interface DayTask extends Task {
   virtual?: boolean;
 }
 
-export type ItemKind = 'routine' | 'task' | 'carry' | 'buffer' | AttachmentKind;
+/** job — незанятая часть блока работы (рабочие задачи заполняют блок изнутри). */
+export type ItemKind = 'routine' | 'job' | 'task' | 'carry' | 'buffer' | AttachmentKind;
 
 /** Один пласт в сосуде. */
 export interface DayItem {
@@ -26,8 +28,20 @@ export interface DayItem {
   /** Для пункта рутины. */
   routineId?: string;
   goalId?: string;
+  /** Пласт относится к работе (блок, дорога на работу, рабочая задача, фриланс). */
+  jobId?: string;
+  /** Цвет источника работы вместо цвета категории. */
+  color?: string;
   /** Оборот: дело внутри этого же пласта, места не занимает. minutes ≤ minutes пласта. */
   parallel?: Parallel;
+}
+
+/** Работа в этот день: блок по графику, сколько занято задачами, переработка. */
+export interface JobDay {
+  job: Job;
+  block: number;
+  used: number;
+  overtime: number;
 }
 
 export interface DayPlan {
@@ -37,6 +51,8 @@ export interface DayPlan {
   total: number;
   free: number;
   overflow: number;
+  jobs: JobDay[];
+  overtime: number;
 }
 
 /**
@@ -202,7 +218,25 @@ export function computeDay(data: AppData, date: DateKey): DayPlan {
   }
 
   const tasks = tasksForDate(data, date);
-  for (const t of tasks) items.push(...taskItems(t, data.settings.bufferMinutes));
+  const buffer = data.settings.bufferMinutes;
+  const jobDays = workItems(data, date, tasks, items);
+
+  // Своё: личные задачи и фриланс (ярус поверх работы). Задачи основной работы уже внутри блока.
+  const fixedIds = new Set(jobDays.map((j) => j.job.id));
+  const jobColor = new Map(jobsOf(data).map((j) => [j.id, j.color]));
+  const projectJob = new Map((data.goals ?? []).filter((g) => g.jobId).map((g) => [g.id, g.jobId!]));
+  for (const t of tasks) {
+    if (t.jobId && fixedIds.has(t.jobId)) continue;
+    const jobId = t.jobId ?? (t.goalId ? projectJob.get(t.goalId) : undefined);
+    const its = taskItems(t, buffer);
+    if (jobId) {
+      for (const it of its) {
+        it.jobId = jobId;
+        if (it.kind === 'task') it.color = jobColor.get(jobId);
+      }
+    }
+    items.push(...its);
+  }
 
   const total = items.reduce((s, i) => s + i.minutes, 0);
   return {
@@ -212,7 +246,63 @@ export function computeDay(data: AppData, date: DateKey): DayPlan {
     total,
     free: Math.max(0, DAY_CAPACITY - total),
     overflow: Math.max(0, total - DAY_CAPACITY),
+    jobs: jobDays,
+    overtime: jobDays.reduce((s, j) => s + j.overtime, 0),
   };
+}
+
+/**
+ * Основная работа — контейнер: дорога на работу, рабочие задачи и незанятая часть блока.
+ * Задачи заполняют блок изнутри; если их больше блока — переработка, блок растёт.
+ */
+function workItems(data: AppData, date: DateKey, tasks: DayTask[], items: DayItem[]): JobDay[] {
+  const out: JobDay[] = [];
+  for (const job of jobsOf(data)) {
+    if (job.kind !== 'fixed') continue;
+    const block = blockMinutes(data, job, date);
+    const own = tasks.filter((t) => t.jobId === job.id);
+    if (block === 0 && own.length === 0) continue;
+
+    if (block > 0 && job.commuteMinutes > 0) {
+      items.push({
+        key: `j:${job.id}:travel`,
+        kind: 'travel',
+        title: 'Дорога на работу',
+        categoryId: 'commute',
+        minutes: job.commuteMinutes,
+        done: false,
+        jobId: job.id,
+        parallel: capParallel(jobParallelOn(data, date, job, 'travel'), job.commuteMinutes),
+      });
+    }
+
+    let used = 0;
+    for (const t of own) {
+      for (const it of taskItems(t, data.settings.bufferMinutes)) {
+        it.jobId = job.id;
+        if (it.kind === 'task') it.color = job.color;
+        used += it.minutes;
+        items.push(it);
+      }
+    }
+
+    const rest = Math.max(0, block - used);
+    if (rest > 0) {
+      items.push({
+        key: `j:${job.id}`,
+        kind: 'job',
+        title: job.title,
+        categoryId: 'work',
+        minutes: rest,
+        done: false,
+        jobId: job.id,
+        color: job.color,
+        parallel: capParallel(jobParallelOn(data, date, job, 'block'), rest),
+      });
+    }
+    out.push({ job, block, used, overtime: Math.max(0, used - block) });
+  }
+  return out;
 }
 
 /** Сводка дня для сеток: рутина отдельно от запланированного. */
@@ -225,12 +315,32 @@ export interface DayLoad {
   hasPlan: boolean;
 }
 
+/** Основание дня: рутина + блок работы целиком + дорога на работу. Сверху — личное и переработка. */
+export function baseMinutes(plan: DayPlan): number {
+  let base = 0;
+  for (const i of plan.items) {
+    if (i.kind === 'routine') base += i.minutes;
+    else if (i.kind === 'travel' && i.jobId && !i.taskId) base += i.minutes;
+  }
+  for (const j of plan.jobs) base += j.block;
+  return base;
+}
+
 export function dayLoad(data: AppData, date: DateKey): DayLoad {
   const plan = computeDay(data, date);
-  let routine = 0;
-  for (const i of plan.items) if (i.kind === 'routine') routine += i.minutes;
-  const planned = plan.total - routine;
+  const routine = baseMinutes(plan);
+  const planned = Math.max(0, plan.total - routine);
   return { routine, planned, total: plan.total, overflow: plan.overflow, hasPlan: planned > 0 };
+}
+
+/**
+ * Сколько черновик реально добавит в сосуд. Рабочая задача внутри блока добавляет 0
+ * (она заполняет блок), сверх блока — только переработку.
+ */
+export function draftEffect(data: AppData, date: DateKey, fields: TaskFields, before: DayPlan): { added: number; total: number } {
+  const probe: Task = { ...fields, id: '__draft__', date, done: false, order: Number.MAX_SAFE_INTEGER };
+  const after = computeDay({ ...data, tasks: [...data.tasks, probe] }, date);
+  return { added: after.total - before.total, total: after.total };
 }
 
 /** Сколько минут черновик займёт в своём дне. */

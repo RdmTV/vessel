@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { computeDay, dayLoad, nearestFitDays, tasksForDate } from './day';
 import { emptyData } from './defaults';
 import { pendingCheckIn, saveCheckIn, skipCheckIn } from './checkin';
-import { addGoal, deleteGoal, goalStats, goalStreak, reserveCoveredBy, updateGoal, type GoalInput } from './goals';
+import {
+  addGoal, deleteGoal, goalStats, goalStreak, projectPace, reserveCoveredBy, updateGoal, type GoalInput,
+} from './goals';
+import {
+  addVacation, DEFAULT_JOBS, FREELANCE_JOB_ID, MAIN_JOB_ID, migrateData, setJobDayOff,
+} from './work';
 import { mergeInto, mergeOptions, setParallel, splitParallel, twiceMinutes } from './parallel';
 import { ageYears, lifeEnd, lifeStats, pluralDays } from './life';
 import { periodRange, periodStats } from './stats';
@@ -22,7 +27,8 @@ const fields = (over: Partial<TaskFields> = {}): TaskFields => ({
   priority: 'medium', location: 'home', attachments: [], subtasks: [], ...over,
 });
 
-const bare = (): AppData => ({ ...emptyData(), routine: [] });
+/** День без рутины и без работы — только то, что добавит тест. */
+const bare = (): AppData => ({ ...emptyData(), routine: [], jobs: [] });
 
 describe('computeDay', () => {
   it('учитывает рутину по дням недели', () => {
@@ -291,12 +297,20 @@ describe('обороты', () => {
 
   it('оборот рутины: шаблон и переопределение на день', () => {
     let d = emptyData();
-    d = { ...d, routine: d.routine.map((r) => (r.id === 'commute' ? { ...r, parallel: { title: 'Аудиокнига', categoryId: 'rest', minutes: 60 } } : r)) };
-    const commute = (day: string) => computeDay(d, day).items.find((i) => i.key === 'r:commute');
-    expect(commute(MON)?.parallel?.title).toBe('Аудиокнига');
-    d = setParallel(d, { kind: 'routine', routineId: 'commute', date: MON }, null);
-    expect(commute(MON)?.parallel).toBeUndefined();
-    expect(commute('2026-10-13')?.parallel?.title).toBe('Аудиокнига');
+    d = { ...d, routine: d.routine.map((r) => (r.id === 'food' ? { ...r, parallel: { title: 'Сериал', categoryId: 'rest', minutes: 60 } } : r)) };
+    const food = (day: string) => computeDay(d, day).items.find((i) => i.key === 'r:food');
+    expect(food(MON)?.parallel?.title).toBe('Сериал');
+    d = setParallel(d, { kind: 'routine', routineId: 'food', date: MON }, null);
+    expect(food(MON)?.parallel).toBeUndefined();
+    expect(food('2026-10-13')?.parallel?.title).toBe('Сериал');
+  });
+
+  it('оборот в дороге на работу', () => {
+    let d = emptyData();
+    d = setParallel(d, { kind: 'job', jobId: MAIN_JOB_ID, part: 'travel', date: MON }, { title: 'Подкаст', categoryId: 'study', minutes: 60 });
+    const travel = computeDay(d, MON).items.find((i) => i.key === `j:${MAIN_JOB_ID}:travel`);
+    expect(travel?.parallel?.title).toBe('Подкаст');
+    expect(computeDay(d, '2026-10-13').items.find((i) => i.key === `j:${MAIN_JOB_ID}:travel`)?.parallel).toBeUndefined();
   });
 
   it('засчитывается в цель и «прожито дважды»', () => {
@@ -319,6 +333,87 @@ describe('обороты', () => {
     const next = tasksForDate(d, '2026-10-13')[0];
     d = toggleDone(d, next.id);
     expect(tasksForDate(d, '2026-10-13')[0].parallel?.done).toBe(false);
+  });
+});
+
+describe('работа', () => {
+  const workTask = (minutes: number, title = 'Отчёт') =>
+    fields({ title, categoryId: 'work', timing: { kind: 'duration', minutes }, jobId: MAIN_JOB_ID });
+  const onlyWork = (): AppData => ({ ...emptyData(), routine: [] });
+
+  it('рабочие задачи заполняют блок изнутри', () => {
+    let d = onlyWork();
+    expect(computeDay(d, MON).total).toBe(8 * 60 + 60); // блок + дорога
+    d = addTask(d, workTask(120), MON, null);
+    const plan = computeDay(d, MON);
+    expect(plan.total).toBe(8 * 60 + 60); // объём тот же
+    expect(plan.items.find((i) => i.kind === 'job')?.minutes).toBe(6 * 60);
+    expect(plan.jobs[0]).toMatchObject({ block: 480, used: 120, overtime: 0 });
+  });
+
+  it('превышение блока — переработка', () => {
+    const d = addTask(addTask(onlyWork(), workTask(300), MON, null), workTask(240, 'Релиз'), MON, null);
+    const plan = computeDay(d, MON);
+    expect(plan.overtime).toBe(60);
+    expect(plan.items.find((i) => i.kind === 'job')).toBeUndefined();
+    expect(plan.total).toBe(540 + 60);
+  });
+
+  it('выходной и отпуск убирают блок и дорогу', () => {
+    let d = setJobDayOff(onlyWork(), MON, MAIN_JOB_ID, true);
+    expect(computeDay(d, MON).total).toBe(0);
+    d = setJobDayOff(d, MON, MAIN_JOB_ID, false);
+    expect(computeDay(d, MON).total).toBe(540);
+    d = addVacation(d, { jobId: null, start: '2026-10-13', end: '2026-10-15', title: 'Отпуск' });
+    expect(computeDay(d, '2026-10-14').total).toBe(0);
+    expect(computeDay(d, '2026-10-16').total).toBe(540);
+  });
+
+  it('фриланс — ярус поверх, цветом работы', () => {
+    const d = addTask(onlyWork(), fields({ title: 'Лендинг', categoryId: 'work', jobId: FREELANCE_JOB_ID }), MON, null);
+    const plan = computeDay(d, MON);
+    expect(plan.total).toBe(540 + 120);
+    expect(plan.items.find((i) => i.title === 'Лендинг')?.color).toBe(DEFAULT_JOBS[1].color);
+  });
+
+  it('проект: темп до дедлайна', () => {
+    let d = addGoal(onlyWork(), {
+      title: 'Лендинг', categoryId: 'work', color: '#F07C3E', start: MON, end: '2026-10-21',
+      reserve: null, jobId: FREELANCE_JOB_ID, estimate: 12 * 60,
+    }, MON);
+    const g = d.goals![0];
+    d = addTask(d, fields({ title: 'Макет', categoryId: 'work', goalId: g.id, timing: { kind: 'duration', minutes: 120 } }), MON, null);
+    d = toggleDone(d, tasksForDate(d, MON)[0].id);
+    expect(projectPace(d, g, '2026-10-13')).toEqual({ done: 120, left: 600, daysLeft: 9, perDay: 70 });
+    expect(computeDay(d, MON).items.find((i) => i.title === 'Макет')?.jobId).toBe(FREELANCE_JOB_ID);
+  });
+
+  it('миграция: работа и дорога из рутины в основную работу', () => {
+    const old: AppData = {
+      version: 1,
+      tasks: [],
+      series: [],
+      routine: [
+        { id: 'sleep', title: 'Сон', categoryId: 'sleep', minutes: 390, weekdays: [0, 1, 2, 3, 4, 5, 6] },
+        { id: 'work', title: 'Работа', categoryId: 'work', minutes: 480, weekdays: [0, 1, 2, 3, 4] },
+        { id: 'commute', title: 'Дорога на работу', categoryId: 'commute', minutes: 60, weekdays: [0, 1, 2, 3, 4], parallel: { title: 'Подкаст', categoryId: 'study', minutes: 30 } },
+      ],
+      routineOverrides: { [MON]: { work: 360, sleep: 420 } },
+      settings: { bufferMinutes: 0 },
+    };
+    const withTask = addTask(old, fields({ title: 'Созвон', categoryId: 'work', timing: { kind: 'duration', minutes: 60 } }), MON, null);
+    const before = computeDay(withTask, '2026-10-13').total;
+    const m = migrateData(withTask);
+    expect(m.routine.map((r) => r.id)).toEqual(['sleep']);
+    expect(m.jobs![0]).toMatchObject({ id: MAIN_JOB_ID, minutes: 480, commuteMinutes: 60, commuteParallel: { title: 'Подкаст' } });
+    expect(m.jobOverrides).toEqual({ [MON]: { [MAIN_JOB_ID]: 360 } });
+    expect(m.routineOverrides).toEqual({ [MON]: { sleep: 420 } });
+    expect(m.tasks[0].jobId).toBe(MAIN_JOB_ID);
+    expect(computeDay(m, '2026-10-13').total).toBe(before); // обычный день не изменился
+    // раньше созвон ложился поверх 6ч работы, теперь он внутри блока
+    expect(computeDay(withTask, MON).total).toBe(420 + 360 + 60 + 60);
+    expect(computeDay(m, MON).total).toBe(420 + 360 + 60);
+    expect(migrateData(m)).toBe(m); // повторно не мигрирует
   });
 });
 

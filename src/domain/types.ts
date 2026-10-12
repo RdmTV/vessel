@@ -52,9 +52,11 @@ export interface TaskFields {
   location: Location;
   attachments: Attachment[];
   subtasks: Subtask[];
-  /** Привязка к долгосрочной цели. */
+  /** Привязка к долгосрочной цели (или проекту фриланса — это цель с jobId). */
   goalId?: string;
   parallel?: Parallel;
+  /** Рабочая задача: у основной работы заполняет блок изнутри, у фриланса — ярус поверх. */
+  jobId?: string;
 }
 
 export interface Task extends TaskFields {
@@ -120,6 +122,38 @@ export interface Goal {
   /** Серия-резерв «N минут в день» (если включён). */
   seriesId?: string;
   reserve?: { minutes: number; weekdays: number[] };
+  /** Проект (заказ) фриланса: цель, привязанная к источнику работы, с оценкой часов. */
+  jobId?: string;
+  estimate?: number;
+}
+
+/**
+ * Источник работы. Основная работа — блок по графику (контейнер: рабочие задачи заполняют его изнутри,
+ * превышение — переработка). Фриланс — без графика, его задачи и проекты — ярус поверх, в «своё» время.
+ */
+export interface Job {
+  id: string;
+  title: string;
+  kind: 'fixed' | 'freelance';
+  color: string;
+  /** Длина блока в рабочий день (fixed). */
+  minutes: number;
+  weekdays: number[];
+  /** Дорога на работу — невидимое время работы, только в дни блока. */
+  commuteMinutes: number;
+  /** Обороты по шаблону: во время работы и в дороге. */
+  parallel?: Parallel;
+  commuteParallel?: Parallel;
+}
+
+/** Отпуск, больничный, праздники: блок работы и дорога в эти дни не появляются. */
+export interface Vacation {
+  id: string;
+  /** null — все работы. */
+  jobId: string | null;
+  start: DateKey;
+  end: DateKey;
+  title: string;
 }
 
 export type GoalProgress = 'yes' | 'little' | 'no';
@@ -154,4 +188,10 @@ export interface AppData {
   checkins?: Record<DateKey, CheckIn>;
   /** День, когда последний раз предлагали чек-ин (чтобы «Пропустить» не спрашивал снова). */
   lastCheckinPrompt?: DateKey;
+  jobs?: Job[];
+  /** Блок работы на конкретный день: jobId → минуты (0 — выходной). */
+  jobOverrides?: Record<DateKey, Record<string, number>>;
+  /** Обороты работы на день: `${jobId}` — во время работы, `${jobId}:travel` — в дороге. null — без оборота. */
+  jobParallel?: Record<DateKey, Record<string, Parallel | null>>;
+  vacations?: Vacation[];
 }

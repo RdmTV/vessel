@@ -54,6 +54,8 @@ export interface PeriodStats {
   freeTotal: number;
   /** Сколько минут прожито дважды (обороты). */
   twiceTotal: number;
+  /** Переработка: рабочие задачи сверх блока основной работы. */
+  overtimeTotal: number;
   ratingAvg: number | null;
   checkinCount: number;
 }
@@ -65,6 +67,7 @@ export function periodStats(data: AppData, from: DateKey, to: DateKey): PeriodSt
   const classes: Record<LoadClass, number> = { free: 0, normal: 0, tight: 0, over: 0 };
   let freeTotal = 0;
   let twiceTotal = 0;
+  let overtimeTotal = 0;
   let ratingSum = 0;
   let checkinCount = 0;
 
@@ -80,9 +83,11 @@ export function periodStats(data: AppData, from: DateKey, to: DateKey): PeriodSt
       if (!c) cats.set(id, (c = { categoryId: id, routine: 0, done: 0, planned: 0, parallel: 0 }));
       return c;
     };
+    overtimeTotal += plan.overtime;
     for (const item of plan.items) {
       const c = cat(item.categoryId);
-      if (item.kind === 'routine') c.routine += item.minutes;
+      const base = item.kind === 'routine' || item.kind === 'job' || (item.kind === 'travel' && !!item.jobId && !item.taskId);
+      if (base) c.routine += item.minutes;
       else if (item.done) c.done += item.minutes;
       else c.planned += item.minutes;
       if (item.parallel) {
@@ -112,7 +117,7 @@ export function periodStats(data: AppData, from: DateKey, to: DateKey): PeriodSt
     || (order.get(a.categoryId) ?? 99) - (order.get(b.categoryId) ?? 99));
 
   return {
-    from, to, days, byCategory, tasks, classes, freeTotal, twiceTotal,
+    from, to, days, byCategory, tasks, classes, freeTotal, twiceTotal, overtimeTotal,
     ratingAvg: checkinCount ? ratingSum / checkinCount : null,
     checkinCount,
   };

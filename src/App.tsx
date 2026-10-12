@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { pendingCheckIn, type PendingCheckIn } from './domain/checkin';
 import { addDays, addMonths, formatDay, formatDayShort, formatMinutes, formatMonth, todayKey } from './domain/dates';
-import { computeDay, taskItems, type DayItem, type DayTask } from './domain/day';
+import { computeDay, draftEffect, taskItems, type DayItem, type DayTask } from './domain/day';
 import { addYears, ageYears, pluralYears } from './domain/life';
 import type { DateKey } from './domain/types';
 import { weekStart } from './domain/week';
@@ -158,21 +158,33 @@ function DayView({ onOverflow, onRoutine, overflowOpen, onCloseOverflow }: {
 
   const plan = useMemo(() => computeDay(data, date), [data, date]);
   const layers = useMemo(() => plan.items.map(itemLayer), [plan]);
-  const draftLayers = useMemo(
-    () => (draft
-      ? taskItems({ ...draft, id: 'draft', done: false }, data.settings.bufferMinutes, 'd').map((i) => ({ ...itemLayer(i), alpha: 1 }))
-      : null),
-    [draft, data.settings.bufferMinutes],
-  );
+  const draftLayers = useMemo(() => {
+    if (!draft) return null;
+    const own = taskItems({ ...draft, id: 'draft', done: false }, data.settings.bufferMinutes, 'd');
+    const ownTotal = own.reduce((s, i) => s + i.minutes, 0);
+    const { added } = draftEffect(data, date, draft, plan);
+    if (added <= 0) return null; // рабочая задача целиком внутри блока
+    if (added < ownTotal) {
+      // часть влезла в блок работы — контуром показываем только переработку
+      return [{ ...itemLayer({ ...own[0], key: 'd:overtime', minutes: added }), alpha: 1 }];
+    }
+    return own.map((i) => ({ ...itemLayer(i), alpha: 1 }));
+  }, [draft, data, date, plan]);
   const labels = useMemo(() => ({
     free: plan.overflow ? '' : plan.free === 0 ? 'Сосуд полон' : `Свободно ${formatMinutes(plan.free)}`,
     overflow: plan.overflow ? `Не влезло ${formatMinutes(plan.overflow)} — нажми, чтобы разобрать` : null,
   }), [plan]);
 
   const sum = (pred: (i: DayItem) => boolean) => plan.items.filter(pred).reduce((s, i) => s + i.minutes, 0);
+  // Задачи основной работы (и их скрытые затраты) уже внутри блока «Работа».
+  const fixedJobs = new Set(plan.jobs.map((j) => j.job.id));
+  const inBlock = (i: DayItem) => !!i.taskId && !!i.jobId && fixedJobs.has(i.jobId);
   const routineMin = sum((i) => i.kind === 'routine');
-  const hiddenMin = sum((i) => ['travel', 'prep', 'recovery', 'buffer'].includes(i.kind));
-  const tasksMin = sum((i) => i.kind === 'task' || i.kind === 'carry');
+  // Работа: блоки основной работы (с переработкой) + фриланс; «своё» — только личное.
+  const freelanceMin = sum((i) => (i.kind === 'task' || i.kind === 'carry') && !!i.jobId && !inBlock(i));
+  const workMin = plan.jobs.reduce((s, j) => s + Math.max(j.block, j.used), 0) + freelanceMin;
+  const hiddenMin = sum((i) => ['travel', 'prep', 'recovery', 'buffer'].includes(i.kind) && !inBlock(i));
+  const tasksMin = sum((i) => (i.kind === 'task' || i.kind === 'carry') && !i.jobId);
   const twiceMin = plan.items.reduce((s, i) => s + (i.parallel?.minutes ?? 0), 0);
 
   const onHover = (key: string | null, x: number, y: number) => {
@@ -203,8 +215,10 @@ function DayView({ onOverflow, onRoutine, overflowOpen, onCloseOverflow }: {
       <section className="vessel-pane">
         <div className="day-summary">
           <Stat label="Рутина" value={routineMin} />
-          <Stat label="Дела" value={tasksMin} />
+          {workMin > 0 && <Stat label="Работа" value={workMin} />}
+          <Stat label="Своё" value={tasksMin} />
           <Stat label="Невидимое" value={hiddenMin} />
+          {plan.overtime > 0 && <Stat label="Переработка" value={plan.overtime} warn />}
           {twiceMin > 0 && <Stat label="Дважды" value={twiceMin} />}
           {plan.overflow > 0
             ? <button type="button" className="stat stat-danger" onClick={onOverflow}><span>Переполнено</span><b>{formatMinutes(plan.overflow)}</b></button>
@@ -231,9 +245,9 @@ function DayView({ onOverflow, onRoutine, overflowOpen, onCloseOverflow }: {
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
+function Stat({ label, value, accent, warn }: { label: string; value: number; accent?: boolean; warn?: boolean }) {
   return (
-    <div className={`stat ${accent ? 'stat-accent' : ''}`}>
+    <div className={`stat ${accent ? 'stat-accent' : ''} ${warn ? 'stat-warn' : ''}`}>
       <span>{label}</span>
       <b>{formatMinutes(value)}</b>
     </div>

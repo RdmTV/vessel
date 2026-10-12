@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { category, DEFAULT_PREP_MINUTES, PICKABLE_CATEGORIES } from '../domain/categories';
 import { formatClock, formatDayShort, formatMinutes, parseClock, weekday } from '../domain/dates';
 import {
-  DAY_CAPACITY, draftMinutes, intervalLength, PRIORITY_LABEL, timingMinutes, type DayPlan, type DayTask,
+  DAY_CAPACITY, draftEffect, draftMinutes, intervalLength, PRIORITY_LABEL, timingMinutes, type DayPlan, type DayTask,
 } from '../domain/day';
 import { goalsOf } from '../domain/goals';
+import { jobsOf } from '../domain/work';
 import { uid } from '../domain/id';
 import { addTask, updateTask, type EditScope } from '../domain/mutations';
 import type {
@@ -41,6 +42,8 @@ interface Form {
   goalId: string;
   /** Оборот: что делаю параллельно с этим делом. */
   parallel?: Parallel;
+  /** Источник работы для задач категории «Работа»: '' — не задан. */
+  jobId: string;
 }
 
 const TRAVEL_QUICK = [15, 30, 45, 60, 90];
@@ -60,7 +63,7 @@ function blankForm(date: DateKey): Form {
     title: '', categoryId: 'chores', timingKind: 'duration', duration: 60,
     start: '19:00', end: '20:00', location: 'home', locationTouched: false, travel: null,
     ...categoryDefaults('chores'),
-    priority: 'medium', subtasks: [], repeat: 'none', weekdays: [weekday(date)], everyN: 2, goalId: '',
+    priority: 'medium', subtasks: [], repeat: 'none', weekdays: [weekday(date)], everyN: 2, goalId: '', jobId: '',
   };
 }
 
@@ -91,6 +94,7 @@ function formFromTask(t: DayTask, rule: RecurrenceRule | null): Form {
     everyN: rule?.freq === 'everyN' ? rule.interval : 2,
     goalId: t.goalId ?? '',
     ...(t.parallel ? { parallel: structuredClone(t.parallel) } : {}),
+    jobId: t.jobId ?? '',
   };
 }
 
@@ -118,6 +122,7 @@ function buildFields(f: Form): TaskFields | null {
     location: f.location, attachments, subtasks: f.subtasks,
   };
   if (f.goalId) fields.goalId = f.goalId;
+  if (f.categoryId === 'work' && f.jobId) fields.jobId = f.jobId;
   if (f.parallel) {
     const own = timing.kind === 'duration' ? timing.minutes : intervalLength(timing.start, timing.end);
     fields.parallel = { ...f.parallel, minutes: Math.min(f.parallel.minutes, own) };
@@ -172,10 +177,36 @@ export function Composer({ date, plan, editing, onCloseEdit }: Props) {
   const goals = goalsOf(data).filter((g) => (g.start <= date && date <= g.end) || g.id === form.goalId);
   const fields = useMemo(() => buildFields(form), [form]);
   const rule = buildRule(form);
-  const need = fields ? draftMinutes(fields, data.settings.bufferMinutes) : 0;
+  // Сколько дело реально добавит в сосуд: рабочая задача внутри блока — 0, сверх блока — переработка.
+  const effect = useMemo(
+    () => (fields ? draftEffect(data, date, fields, plan) : { added: 0, total: plan.total }),
+    [data, date, fields, plan],
+  );
+  const need = effect.added;
+  const ownMinutes = fields ? draftMinutes(fields, data.settings.bufferMinutes) : 0;
   const isNew = !editing;
-  const deficit = plan.total + need - DAY_CAPACITY;
+  const deficit = effect.total - DAY_CAPACITY;
   const fits = deficit <= 0;
+  const jobs = jobsOf(data);
+  const fixedJob = jobs.find((j) => j.id === form.jobId && j.kind === 'fixed');
+
+  // «+ задача» из блока работы или проекта: открыть форму с заготовкой.
+  const preset = useStore((s) => s.composerPreset);
+  useEffect(() => {
+    if (!preset || editing) return;
+    setForm({
+      ...blankForm(date),
+      ...(preset.categoryId ? { categoryId: preset.categoryId, ...categoryDefaults(preset.categoryId) } : {}),
+      jobId: preset.jobId ?? '',
+      goalId: preset.goalId ?? '',
+    });
+    setOpen(true);
+    setTimeout(() => {
+      titleRef.current?.focus();
+      titleRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset?.nonce]);
   const travelMissing = form.location === 'out' && form.travel === null;
   const hasTitle = form.title.trim().length > 0;
 
@@ -224,12 +255,15 @@ export function Composer({ date, plan, editing, onCloseEdit }: Props) {
 
   const setCategory = (id: string) => {
     const c = category(id);
+    // «Работа» по умолчанию — в блок основной работы.
+    const defaultJob = jobs.find((j) => j.kind === 'fixed')?.id ?? '';
     setForm((f) => ({
       ...f,
       categoryId: id,
       ...categoryDefaults(id),
       location: f.locationTouched ? f.location : c.defaultLocation,
       travel: (f.locationTouched ? f.location : c.defaultLocation) === 'out' ? f.travel : null,
+      jobId: id === 'work' ? f.jobId || defaultJob : '',
     }));
   };
 
@@ -306,6 +340,18 @@ export function Composer({ date, plan, editing, onCloseEdit }: Props) {
           ))}
         </div>
       </div>
+
+      {form.categoryId === 'work' && jobs.length > 0 && (
+        <div className="field field-row">
+          <span className="label">Работа</span>
+          <Segmented
+            small
+            value={form.jobId}
+            onChange={(v) => set({ jobId: v })}
+            options={jobs.map((j) => ({ value: j.id, label: j.title }))}
+          />
+        </div>
+      )}
 
       <div className="field">
         <Segmented
@@ -449,9 +495,17 @@ export function Composer({ date, plan, editing, onCloseEdit }: Props) {
 
       {fields && (
         <div className="composer-summary">
-          Займёт <b>{formatMinutes(need)}</b>
-          {fields.attachments.length > 0 && (
-            <span className="muted"> (из них невидимого {formatMinutes(fields.attachments.reduce((s, a) => s + a.minutes, 0))})</span>
+          {isNew && fixedJob && need === 0 ? (
+            <>Внутри блока «{fixedJob.title}» — места в сосуде не займёт</>
+          ) : isNew && fixedJob && need < ownMinutes ? (
+            <>Не влезает в блок «{fixedJob.title}»: переработка <b className="warn-text">+{formatMinutes(need)}</b></>
+          ) : (
+            <>
+              Займёт <b>{formatMinutes(isNew ? need : ownMinutes)}</b>
+              {fields.attachments.length > 0 && (
+                <span className="muted"> (из них невидимого {formatMinutes(fields.attachments.reduce((s, a) => s + a.minutes, 0))})</span>
+              )}
+            </>
           )}
           {isNew && <> · свободно {formatMinutes(Math.max(0, DAY_CAPACITY - plan.total))}</>}
         </div>

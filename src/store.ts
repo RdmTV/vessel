@@ -2,6 +2,7 @@ import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { create } from 'zustand';
 import { todayKey } from './domain/dates';
 import { emptyData } from './domain/defaults';
+import { migrateData } from './domain/work';
 import type { EditScope } from './domain/mutations';
 import type { AppData, DateKey, TaskFields } from './domain/types';
 
@@ -33,6 +34,9 @@ interface State {
   highlight: string | null;
   /** Раскрытая строка в списке задач. */
   expandedTask: string | null;
+  /** Открыть форму новой задачи с заготовкой (например, «+ задача» в блоке работы). */
+  composerPreset: { jobId?: string; goalId?: string; categoryId?: string; nonce: number } | null;
+  presetComposer: (p: { jobId?: string; goalId?: string; categoryId?: string }) => void;
   toast: Toast | null;
   scopeAsk: ScopeAsk | null;
 
@@ -61,6 +65,8 @@ export const useStore = create<State>((set, get) => ({
   draft: null,
   highlight: null,
   expandedTask: null,
+  composerPreset: null,
+  presetComposer: (p) => set({ composerPreset: { ...p, nonce: Date.now() } }),
   toast: null,
   scopeAsk: null,
 
@@ -110,7 +116,8 @@ export async function loadData() {
   } catch (e) {
     console.error('Не удалось прочитать данные', e);
   }
-  useStore.setState({ data: data ?? emptyData(), loaded: true });
+  // Старые данные: работа была пунктом рутины — переносим в отдельный класс.
+  useStore.setState({ data: data ? migrateData(data) : emptyData(), loaded: true });
 
   useStore.subscribe((s, prev) => {
     if (s.data === prev.data) return;
