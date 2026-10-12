@@ -40,6 +40,8 @@ export interface CategoryTotal {
   done: number;
   /** Запланировано и не сделано. */
   planned: number;
+  /** Обороты этой категории — время сверх 24 часов, «прожитое дважды». */
+  parallel: number;
 }
 
 export interface PeriodStats {
@@ -50,6 +52,8 @@ export interface PeriodStats {
   tasks: { count: number; doneCount: number; minutes: number; doneMinutes: number };
   classes: Record<LoadClass, number>;
   freeTotal: number;
+  /** Сколько минут прожито дважды (обороты). */
+  twiceTotal: number;
   ratingAvg: number | null;
   checkinCount: number;
 }
@@ -60,6 +64,7 @@ export function periodStats(data: AppData, from: DateKey, to: DateKey): PeriodSt
   const tasks = { count: 0, doneCount: 0, minutes: 0, doneMinutes: 0 };
   const classes: Record<LoadClass, number> = { free: 0, normal: 0, tight: 0, over: 0 };
   let freeTotal = 0;
+  let twiceTotal = 0;
   let ratingSum = 0;
   let checkinCount = 0;
 
@@ -70,12 +75,20 @@ export function periodStats(data: AppData, from: DateKey, to: DateKey): PeriodSt
     classes[cls]++;
     freeTotal += plan.free;
 
+    const cat = (id: string) => {
+      let c = cats.get(id);
+      if (!c) cats.set(id, (c = { categoryId: id, routine: 0, done: 0, planned: 0, parallel: 0 }));
+      return c;
+    };
     for (const item of plan.items) {
-      const c = cats.get(item.categoryId) ?? { categoryId: item.categoryId, routine: 0, done: 0, planned: 0 };
+      const c = cat(item.categoryId);
       if (item.kind === 'routine') c.routine += item.minutes;
       else if (item.done) c.done += item.minutes;
       else c.planned += item.minutes;
-      cats.set(item.categoryId, c);
+      if (item.parallel) {
+        cat(item.parallel.categoryId).parallel += item.parallel.minutes;
+        twiceTotal += item.parallel.minutes;
+      }
     }
     for (const t of plan.tasks) {
       const m = timingMinutes(t.timing);
@@ -95,10 +108,11 @@ export function periodStats(data: AppData, from: DateKey, to: DateKey): PeriodSt
 
   const order = new Map(CATEGORIES.map((c, i) => [c.id, i]));
   const byCategory = [...cats.values()].sort((a, b) =>
-    (b.done + b.planned) - (a.done + a.planned) || (order.get(a.categoryId) ?? 99) - (order.get(b.categoryId) ?? 99));
+    (b.done + b.planned + b.parallel) - (a.done + a.planned + a.parallel)
+    || (order.get(a.categoryId) ?? 99) - (order.get(b.categoryId) ?? 99));
 
   return {
-    from, to, days, byCategory, tasks, classes, freeTotal,
+    from, to, days, byCategory, tasks, classes, freeTotal, twiceTotal,
     ratingAvg: checkinCount ? ratingSum / checkinCount : null,
     checkinCount,
   };

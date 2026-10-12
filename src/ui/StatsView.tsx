@@ -19,6 +19,7 @@ const LOAD_ORDER: LoadClass[] = ['free', 'normal', 'tight', 'over'];
 const DONE = '#8A97FF';
 const PLANNED = '#454D7E';
 const ROUTINE = '#34374A';
+const TWICE = '#D2B4FF';
 
 export function StatsView() {
   const data = useStore((s) => s.data);
@@ -32,8 +33,9 @@ export function StatsView() {
   const st = useMemo(() => periodStats(data, from, to), [data, from, to]);
   const days = st.days.length;
 
-  const catMax = Math.max(1, ...st.byCategory.map((c) => c.done + c.planned + (withRoutine ? c.routine : 0)));
-  const cats = st.byCategory.filter((c) => c.done + c.planned + (withRoutine ? c.routine : 0) > 0);
+  const catTotal = (c: (typeof st.byCategory)[number]) => c.done + c.planned + c.parallel + (withRoutine ? c.routine : 0);
+  const catMax = Math.max(1, ...st.byCategory.map(catTotal));
+  const cats = st.byCategory.filter((c) => catTotal(c) > 0);
   const donePct = st.tasks.count ? Math.round((st.tasks.doneCount / st.tasks.count) * 100) : null;
 
   const goals = goalsOf(data).filter((g) => g.start <= to && g.end >= from);
@@ -63,6 +65,11 @@ export function StatsView() {
           sub={st.checkinCount ? `чек-инов: ${st.checkinCount}` : 'чек-инов не было'}
         />
         <Tile label="Переполнено дней" value={String(st.classes.over)} sub={st.classes.over ? 'что-то выпало из сосуда' : 'всё влезало'} danger={st.classes.over > 0} />
+        <Tile
+          label="Прожито дважды"
+          value={formatMinutes(st.twiceTotal)}
+          sub={st.twiceTotal ? 'параллельные дела — сверх 24 часов' : 'совмести что-нибудь: подкаст в дороге'}
+        />
       </div>
 
       <section className="card">
@@ -104,6 +111,7 @@ export function StatsView() {
         <div className="legend legend-inline">
           <span><i style={{ background: DONE }} />сделано</span>
           <span><i style={{ background: PLANNED }} />запланировано</span>
+          <span><i style={{ background: TWICE }} />параллельно</span>
           {withRoutine && <span><i style={{ background: ROUTINE }} />рутина</span>}
         </div>
         {cats.length === 0 && <p className="muted">Пока ничего не запланировано.</p>}
@@ -111,6 +119,7 @@ export function StatsView() {
           const segs = [
             { v: c.done, color: DONE, label: 'сделано' },
             { v: c.planned, color: PLANNED, label: 'запланировано' },
+            { v: c.parallel, color: TWICE, label: 'параллельно' },
             ...(withRoutine ? [{ v: c.routine, color: ROUTINE, label: 'рутина' }] : []),
           ].filter((s) => s.v > 0);
           const total = segs.reduce((s, x) => s + x.v, 0);

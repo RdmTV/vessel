@@ -2,16 +2,17 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { category, DEFAULT_PREP_MINUTES, PICKABLE_CATEGORIES } from '../domain/categories';
 import { formatClock, formatDayShort, formatMinutes, parseClock, weekday } from '../domain/dates';
 import {
-  DAY_CAPACITY, draftMinutes, intervalLength, PRIORITY_LABEL, type DayPlan, type DayTask,
+  DAY_CAPACITY, draftMinutes, intervalLength, PRIORITY_LABEL, timingMinutes, type DayPlan, type DayTask,
 } from '../domain/day';
 import { goalsOf } from '../domain/goals';
 import { uid } from '../domain/id';
 import { addTask, updateTask, type EditScope } from '../domain/mutations';
 import type {
-  Attachment, DateKey, Location, Priority, RecurrenceRule, Subtask, TaskFields,
+  Attachment, DateKey, Location, Parallel, Priority, RecurrenceRule, Subtask, TaskFields,
 } from '../domain/types';
 import { useStore } from '../store';
 import { DurationPicker, Segmented, WeekdayPicker } from './common';
+import { ParallelForm } from './Parallel';
 import { DraftResolution } from './Resolution';
 
 type Repeat = 'none' | 'daily' | 'weekdays' | 'weekly' | 'everyN' | 'monthly';
@@ -38,6 +39,8 @@ interface Form {
   everyN: number;
   /** '' — без цели. */
   goalId: string;
+  /** Оборот: что делаю параллельно с этим делом. */
+  parallel?: Parallel;
 }
 
 const TRAVEL_QUICK = [15, 30, 45, 60, 90];
@@ -87,6 +90,7 @@ function formFromTask(t: DayTask, rule: RecurrenceRule | null): Form {
     weekdays: rule?.freq === 'weekly' ? rule.weekdays : [weekday(t.date)],
     everyN: rule?.freq === 'everyN' ? rule.interval : 2,
     goalId: t.goalId ?? '',
+    ...(t.parallel ? { parallel: structuredClone(t.parallel) } : {}),
   };
 }
 
@@ -114,6 +118,10 @@ function buildFields(f: Form): TaskFields | null {
     location: f.location, attachments, subtasks: f.subtasks,
   };
   if (f.goalId) fields.goalId = f.goalId;
+  if (f.parallel) {
+    const own = timing.kind === 'duration' ? timing.minutes : intervalLength(timing.start, timing.end);
+    fields.parallel = { ...f.parallel, minutes: Math.min(f.parallel.minutes, own) };
+  }
   return fields;
 }
 
@@ -379,6 +387,13 @@ export function Composer({ date, plan, editing, onCloseEdit }: Props) {
         />
       </div>
 
+      <ComposerParallel
+        value={form.parallel}
+        maxMinutes={fields ? timingMinutes(fields.timing) : form.duration}
+        date={date}
+        onChange={(p) => set({ parallel: p ?? undefined })}
+      />
+
       {goals.length > 0 && (
         <div className="field field-row">
           <span className="label">Цель</span>
@@ -460,6 +475,46 @@ export function Composer({ date, plan, editing, onCloseEdit }: Props) {
           {blockedReason ?? (isNew ? 'Принять' : 'Сохранить')}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Оборот в форме задачи: свёрнутая ссылка, форма, потом короткая строка. */
+function ComposerParallel({ value, maxMinutes, date, onChange }: {
+  value?: Parallel; maxMinutes: number; date: DateKey; onChange: (p: Parallel | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <div className="field">
+        <span className="label">Параллельно — места в сосуде не займёт</span>
+        <ParallelForm
+          value={value}
+          maxMinutes={maxMinutes}
+          date={date}
+          saveLabel="Готово"
+          onCancel={() => setEditing(false)}
+          onSave={(p) => {
+            onChange(p);
+            setEditing(false);
+          }}
+        />
+      </div>
+    );
+  }
+  if (!value) {
+    return (
+      <button type="button" className="link link-left" onClick={() => setEditing(true)}>
+        ⇄ + Параллельно (например, подкаст во время бега)
+      </button>
+    );
+  }
+  return (
+    <div className="template-parallel">
+      <i style={{ background: category(value.categoryId).color }} />
+      <span>⇄ {value.title} · {formatMinutes(Math.min(value.minutes, maxMinutes))}</span>
+      <button type="button" className="link" onClick={() => setEditing(true)}>изменить</button>
+      <button type="button" className="link" onClick={() => onChange(null)}>убрать</button>
     </div>
   );
 }

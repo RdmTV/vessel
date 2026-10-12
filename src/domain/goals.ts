@@ -1,5 +1,5 @@
 import { addDays } from './dates';
-import { tasksForDate } from './day';
+import { computeDay } from './day';
 import { uid } from './id';
 import { endSeriesFrom } from './mutations';
 import type { AppData, DateKey, Goal, RecurrenceRule, Series, TaskFields } from './types';
@@ -123,21 +123,40 @@ export interface GoalStats {
   done: number;
 }
 
-/** Часы цели на отрезке (по умолчанию — весь срок цели). */
+/**
+ * Часы цели на отрезке (по умолчанию — весь срок цели).
+ * Засчитываются и задачи цели, и обороты с этой целью (английский в наушниках по дороге).
+ */
 export function goalStats(data: AppData, goal: Goal, from = goal.start, to = goal.end): GoalStats {
   let planned = 0;
   let done = 0;
   const start = from > goal.start ? from : goal.start;
   const end = to < goal.end ? to : goal.end;
   for (let d = start; d <= end; d = addDays(d, 1)) {
-    for (const t of tasksForDate(data, d)) {
-      if (t.goalId !== goal.id) continue;
-      const m = t.timing.kind === 'duration' ? t.timing.minutes : (t.timing.end - t.timing.start + 1440) % 1440;
-      planned += m;
-      if (t.done) done += m;
+    for (const item of computeDay(data, d).items) {
+      if (item.kind === 'task' && item.goalId === goal.id) {
+        planned += item.minutes;
+        if (item.done) done += item.minutes;
+      }
+      const p = item.parallel;
+      if (p?.goalId === goal.id) {
+        planned += p.minutes;
+        if (p.done) done += p.minutes;
+      }
     }
   }
   return { planned, done };
+}
+
+/**
+ * Резерв цели в этот день уже закрыт оборотом с той же целью (например, подкаст по дороге) —
+ * отдельный пласт резерва можно убрать. Возвращает название пласта с оборотом.
+ */
+export function reserveCoveredBy(data: AppData, date: DateKey, goalId: string): string | null {
+  for (const item of computeDay(data, date).items) {
+    if (item.parallel?.goalId === goalId) return item.title;
+  }
+  return null;
 }
 
 /** Серия дней подряд (до `upTo` включительно) с отметкой «продвинулся» или «чуть-чуть». */

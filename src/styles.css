@@ -616,6 +616,86 @@ input[type='time']::-webkit-calendar-picker-indicator { filter: invert(0.8); }
 .hbar-track i:only-child { border-radius: 4px; }
 .hbar-value { text-align: right; color: #c7cad4; white-space: nowrap; }
 
+/* ───────── карточки задач с переворотом */
+
+.tcard { perspective: 1200px; border-radius: 12px; }
+.tcard-inner {
+  position: relative;
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+.tcard.flipped .tcard-inner { transform: rotateY(180deg); }
+.tcard-face {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  min-height: 56px;
+}
+/* высоту карточки задаёт видимая сторона, невидимая не растягивает её */
+.tcard:not(.flipped) .tcard-back,
+.tcard.flipped .tcard-front { position: absolute; inset: 0; overflow: hidden; }
+.tcard-back { transform: rotateY(180deg); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; background: #1a1b23; border-color: #3a3550; }
+.tcard:hover .tcard-front, .tcard.lit .tcard-front, .tcard.open .tcard-front { border-color: var(--line-2); background: var(--panel-2); }
+.tcard.done .task-title { text-decoration: line-through; color: var(--muted); }
+.tcard + .tcard { margin-top: 6px; }
+.tcard-back-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #c9b8ff; font-weight: 600; }
+
+.flip-btn {
+  flex: none;
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.flip-btn:hover { color: var(--text); background: var(--panel-3); }
+.flip-btn.has { color: #c9b8ff; border-color: #6b5aa6; background: rgba(181, 123, 255, 0.12); }
+
+.twice-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  margin: -2px 8px 8px 38px;
+  padding: 4px 8px;
+  border: 1px dashed #4b4466;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+}
+.twice-line i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.twice-line span:first-of-type { flex: 1; }
+.twice-line::before { content: '⇄'; color: #c9b8ff; }
+.done-text { text-decoration: line-through; color: var(--muted); }
+
+.covered-hint { margin: 0 8px 8px 38px; padding: 6px 10px; border-radius: 8px; background: rgba(110, 231, 168, 0.08); border: 1px solid rgba(110, 231, 168, 0.3); font-size: 12px; color: #b6f0cf; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.merge-pick { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 8px; background: var(--panel-3); }
+
+.parallel-slot { display: flex; flex-direction: column; gap: 6px; }
+.parallel-slot-empty { flex-direction: row; justify-content: space-between; align-items: center; }
+.parallel-slot-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.parallel-item { display: flex; gap: 10px; align-items: flex-start; }
+.parallel-main { flex: 1; min-width: 0; }
+.parallel-form { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; background: var(--panel-2); border: 1px dashed #4b4466; }
+.parallel-title { font-size: 14px; }
+.parallel-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.chips-compact .chip { font-size: 12px; padding: 2px 8px; }
+.template-parallel { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #c9b8ff; flex-wrap: wrap; }
+.template-parallel i { width: 8px; height: 8px; border-radius: 50%; }
+.link-left { align-self: flex-start; text-align: left; }
+.routine-block { display: flex; flex-direction: column; gap: 4px; }
+.routine-block .parallel-slot { margin: 0 0 6px 18px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); }
+
 /* ───────── узкие экраны (в конце, чтобы перекрывать базовые правила) */
 
 @media (max-width: 920px) {

@@ -173,6 +173,7 @@ function DayView({ onOverflow, onRoutine, overflowOpen, onCloseOverflow }: {
   const routineMin = sum((i) => i.kind === 'routine');
   const hiddenMin = sum((i) => ['travel', 'prep', 'recovery', 'buffer'].includes(i.kind));
   const tasksMin = sum((i) => i.kind === 'task' || i.kind === 'carry');
+  const twiceMin = plan.items.reduce((s, i) => s + (i.parallel?.minutes ?? 0), 0);
 
   const onHover = (key: string | null, x: number, y: number) => {
     if (!key) {
@@ -183,9 +184,10 @@ function DayView({ onOverflow, onRoutine, overflowOpen, onCloseOverflow }: {
     setHighlight(key.split(':').slice(0, 2).join(':'));
     const item = plan.items.find((i) => i.key === key);
     if (item) {
-      const isGoal = item.kind === 'task' && !!plan.tasks.find((t) => t.id === item.taskId)?.goalId;
+      const isGoal = item.kind === 'task' && !!item.goalId;
       const kind = isGoal ? 'цель' : KIND_LABEL[item.kind];
-      setTip({ text: `${item.title}${kind ? ` (${kind})` : ''} · ${formatMinutes(item.minutes)}`, x, y });
+      const twice = item.parallel ? ` ⇄ ${item.parallel.title} ${formatMinutes(item.parallel.minutes)}` : '';
+      setTip({ text: `${item.title}${kind ? ` (${kind})` : ''}${twice} · ${formatMinutes(item.minutes)}`, x, y });
     }
   };
 
@@ -203,6 +205,7 @@ function DayView({ onOverflow, onRoutine, overflowOpen, onCloseOverflow }: {
           <Stat label="Рутина" value={routineMin} />
           <Stat label="Дела" value={tasksMin} />
           <Stat label="Невидимое" value={hiddenMin} />
+          {twiceMin > 0 && <Stat label="Дважды" value={twiceMin} />}
           {plan.overflow > 0
             ? <button type="button" className="stat stat-danger" onClick={onOverflow}><span>Переполнено</span><b>{formatMinutes(plan.overflow)}</b></button>
             : <Stat label="Свободно" value={plan.free} accent />}

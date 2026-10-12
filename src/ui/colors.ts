@@ -20,10 +20,18 @@ export function mix(a: string, b: string, t: number): string {
 /** Рутина — приглушённый фундамент; невыполненное — блёклое; выполненное — яркое. */
 export function itemLayer(i: DayItem): LayerSpec {
   const base = category(i.categoryId).color;
-  if (i.kind === 'routine') {
-    return { key: i.key, count: grainsFor(i.minutes), color: mix(base, ROUTINE_TINT, 0.38), alpha: 1 };
+  const layer: LayerSpec = i.kind === 'routine'
+    ? { key: i.key, count: grainsFor(i.minutes), color: mix(base, ROUTINE_TINT, 0.38), alpha: 1 }
+    : { key: i.key, count: grainsFor(i.minutes), color: base, alpha: i.done ? 1 : 0.5 };
+  // Оборот — крапинки цвета второго дела внутри того же пласта.
+  if (i.parallel && i.minutes > 0) {
+    layer.accent = {
+      color: category(i.parallel.categoryId).color,
+      share: i.parallel.minutes / i.minutes,
+      alpha: i.kind === 'routine' || i.parallel.done ? 1 : 0.5,
+    };
   }
-  return { key: i.key, count: grainsFor(i.minutes), color: base, alpha: i.done ? 1 : 0.5 };
+  return layer;
 }
 
 /** Пласт недельного сосуда — те же правила цвета, шкала 168 часов. */

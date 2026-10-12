@@ -2,7 +2,7 @@ import { ATTACHMENT_CATEGORY } from './categories';
 import { addDays, weekday } from './dates';
 import { occursVirtually } from './recurrence';
 import type {
-  AppData, AttachmentKind, DateKey, Priority, Task, TaskFields, Timing,
+  AppData, AttachmentKind, DateKey, Parallel, Priority, RoutineItem, Task, TaskFields, Timing,
 } from './types';
 
 export const DAY_CAPACITY = 24 * 60;
@@ -23,6 +23,11 @@ export interface DayItem {
   minutes: number;
   done: boolean;
   taskId?: string;
+  /** Для пункта рутины. */
+  routineId?: string;
+  goalId?: string;
+  /** Оборот: дело внутри этого же пласта, места не занимает. minutes ≤ minutes пласта. */
+  parallel?: Parallel;
 }
 
 export interface DayPlan {
@@ -99,20 +104,29 @@ export function tasksForDate(data: AppData, date: DateKey): DayTask[] {
   return result.sort((a, b) => a.order - b.order);
 }
 
+/** Оборот не может быть длиннее своего пласта. */
+function capParallel(p: Parallel | undefined, minutes: number): Parallel | undefined {
+  if (!p || p.minutes <= 0 || minutes <= 0) return undefined;
+  return p.minutes > minutes ? { ...p, minutes } : p;
+}
+
 /** Пласты задачи на её день: сама задача + привязанные скрытые затраты + буфер. */
 export function taskItems(
-  t: Pick<Task, 'id' | 'title' | 'categoryId' | 'timing' | 'attachments' | 'done'>,
+  t: Pick<Task, 'id' | 'title' | 'categoryId' | 'timing' | 'attachments' | 'done' | 'goalId' | 'parallel'>,
   bufferMinutes: number,
   keyPrefix = 't',
 ): DayItem[] {
+  const minutes = minutesOnStartDay(t.timing);
   const items: DayItem[] = [{
     key: `${keyPrefix}:${t.id}`,
     kind: 'task',
     title: t.title,
     categoryId: t.categoryId,
-    minutes: minutesOnStartDay(t.timing),
+    minutes,
     done: t.done,
     taskId: t.id,
+    goalId: t.goalId,
+    parallel: capParallel(t.parallel, minutes),
   }];
   for (const a of t.attachments) {
     if (a.minutes <= 0) continue;
@@ -124,6 +138,7 @@ export function taskItems(
       minutes: a.minutes,
       done: t.done,
       taskId: t.id,
+      parallel: capParallel(a.parallel, a.minutes),
     });
   }
   if (bufferMinutes > 0) {
@@ -138,6 +153,13 @@ export function taskItems(
     });
   }
   return items;
+}
+
+/** Оборот пункта рутины на день: переопределение дня важнее шаблона. */
+export function routineParallelOn(data: AppData, date: DateKey, item: RoutineItem): Parallel | undefined {
+  const day = data.routineParallel?.[date];
+  if (day && item.id in day) return day[item.id] ?? undefined;
+  return item.parallel;
 }
 
 export function routineItems(data: AppData, date: DateKey): DayItem[] {
@@ -155,6 +177,8 @@ export function routineItems(data: AppData, date: DateKey): DayItem[] {
       categoryId: r.categoryId,
       minutes,
       done: false,
+      routineId: r.id,
+      parallel: capParallel(routineParallelOn(data, date, r), minutes),
     });
   }
   return items;

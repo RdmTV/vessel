@@ -29,6 +29,11 @@ export interface LayerSpec {
   color: string;
   /** < 1 — невыполненное: цвет приглушается к фону. */
   alpha: number;
+  /**
+   * Оборот: часть песчинок пласта окрашена цветом второго дела («двойной» песок).
+   * share — доля оборота от длины пласта (0..1).
+   */
+  accent?: { color: string; share: number; alpha: number };
 }
 
 /** open — насыпать заново (смена дня); diff — досыпать/убрать разницу; instant — без анимации. */
@@ -60,6 +65,9 @@ type Phase = 'idle' | 'active' | 'shake' | 'drain';
 interface Slot {
   key: string;
   pal: Uint32Array;
+  /** Палитра крапинок оборота и порог по метке песчинки (0 — без оборота). */
+  accentPal: Uint32Array;
+  accentCut: number;
   count: number;
 }
 
@@ -118,6 +126,8 @@ export class VesselEngine {
   private grid = new Uint16Array(0);
   private vel = new Float32Array(0);
   private noise = new Uint8Array(0);
+  /** Случайная метка песчинки (0..255): решает, крапинка ли она оборота. Едет вместе с песчинкой. */
+  private mark = new Uint8Array(0);
   private stamp = new Uint32Array(0);
   private frameNo = 0;
 
@@ -241,6 +251,7 @@ export class VesselEngine {
     this.grid = new Uint16Array(n);
     this.vel = new Float32Array(n);
     this.noise = new Uint8Array(n);
+    this.mark = new Uint8Array(n);
     this.stamp = new Uint32Array(n);
     this.off.width = this.WW;
     this.off.height = this.WH;
@@ -295,7 +306,7 @@ export class VesselEngine {
     if (id === undefined) {
       id = this.slots.length < FIRST_SLOT ? FIRST_SLOT : this.slots.length;
       this.keyToSlot.set(l.key, id);
-      this.slots[id] = { key: l.key, pal: palette([128, 128, 128]), count: 0 };
+      this.slots[id] = { key: l.key, pal: palette([128, 128, 128]), accentPal: new Uint32Array(0), accentCut: 0, count: 0 };
     }
     return id;
   }
@@ -311,6 +322,17 @@ export class VesselEngine {
       if (l && l.alpha < 1) rgb = mixRgb(rgb, BG, (1 - l.alpha) * 0.9);
       const lit = hl === null || s.key === hl || s.key.startsWith(`${hl}:`);
       s.pal = palette(lit ? rgb : mixRgb(rgb, BG, 0.62));
+      // Оборот: до половины песчинок пласта — цвета второго дела, пропорционально его длине.
+      const a = l?.accent;
+      if (a && a.share > 0) {
+        // Крапинки светлее и ярче основного песка — иначе на приглушённом пласте их не видно.
+        let argb = mixRgb(hexRgb(a.color), [255, 255, 255], 0.18);
+        if (a.alpha < 1) argb = mixRgb(argb, BG, (1 - a.alpha) * 0.45);
+        s.accentPal = palette(lit ? argb : mixRgb(argb, BG, 0.62));
+        s.accentCut = Math.round(Math.min(1, a.share) * 0.5 * 256);
+      } else {
+        s.accentCut = 0;
+      }
     }
     this.dirty = true;
   }
@@ -352,7 +374,7 @@ export class VesselEngine {
     }
 
     // instant: ровные пласты снизу вверх, излишек досыпается струёй и выпадает.
-    const { grid, noise, WW, vx0, rimY } = this;
+    const { grid, noise, mark, WW, vx0, rimY } = this;
     let c = 0;
     for (const l of this.layers) {
       const slot = this.slotFor(l);
@@ -362,6 +384,7 @@ export class VesselEngine {
         const i = (rimY + GRID - 1 - row) * WW + vx0 + (c % GRID);
         grid[i] = slot;
         noise[i] = (Math.random() * NOISE_LEVELS) | 0;
+        mark[i] = (Math.random() * 256) | 0;
         this.slots[slot]!.count++;
         c++;
         rest--;
@@ -443,7 +466,7 @@ export class VesselEngine {
   private emit(): number {
     const p = this.pours[0];
     if (!p) return 0;
-    const { grid, noise, vel, WW, vx0 } = this;
+    const { grid, noise, mark, vel, WW, vx0 } = this;
     this.wavePhase += 0.045;
 
     const n = Math.min(p.remaining, p.rate);
@@ -460,6 +483,7 @@ export class VesselEngine {
       if (grid[i] !== EMPTY) continue;
       grid[i] = p.slot;
       noise[i] = (Math.random() * NOISE_LEVELS) | 0;
+      mark[i] = (Math.random() * 256) | 0;
       vel[i] = 1 + Math.random();
       placed++;
     }
@@ -474,13 +498,14 @@ export class VesselEngine {
 
   private step(spread: number): number {
     const f = ++this.frameNo;
-    const { grid, vel, noise, stamp, WW, WH } = this;
+    const { grid, vel, noise, mark, stamp, WW, WH } = this;
     let moved = 0;
     let falls = 0;
 
     const move = (from: number, to: number, v: number) => {
       grid[to] = grid[from];
       noise[to] = noise[from];
+      mark[to] = mark[from];
       vel[to] = v;
       stamp[to] = f;
       grid[from] = EMPTY;
@@ -563,13 +588,14 @@ export class VesselEngine {
    */
   /** Переложить верхнюю песчинку столбика `from` на верх столбика `to`. */
   private shiftTop(top: Int32Array, from: number, to: number): number {
-    const { grid, noise, vel, WW, vx0 } = this;
+    const { grid, noise, mark, vel, WW, vx0 } = this;
     const fi = top[from] * WW + vx0 + from;
     // столбик-приёмник заполнен до верха мира — класть некуда
     if (grid[fi] < FIRST_SLOT || top[to] <= 0) return 0;
     const ti = (top[to] - 1) * WW + vx0 + to;
     grid[ti] = grid[fi];
     noise[ti] = noise[fi];
+    mark[ti] = mark[fi];
     vel[ti] = 0;
     grid[fi] = EMPTY;
     top[from]++;
@@ -624,6 +650,7 @@ export class VesselEngine {
         if (grid[ti] !== EMPTY) continue;
         grid[ti] = grid[fi];
         noise[ti] = noise[fi];
+        this.mark[ti] = this.mark[fi];
         vel[ti] = 2.5;
         grid[fi] = EMPTY;
         top[c]++;
@@ -715,10 +742,15 @@ export class VesselEngine {
     const v = this.view!;
     const ctx = this.ctx;
     if (this.dirty && this.img) {
-      const { grid, noise, pix, slots } = this;
+      const { grid, noise, mark, pix, slots } = this;
       for (let i = 0; i < grid.length; i++) {
         const c = grid[i];
-        pix[i] = c >= FIRST_SLOT ? slots[c]!.pal[noise[i]] : 0;
+        if (c < FIRST_SLOT) {
+          pix[i] = 0;
+          continue;
+        }
+        const s = slots[c]!;
+        pix[i] = (mark[i] < s.accentCut ? s.accentPal : s.pal)[noise[i]];
       }
       this.offCtx.putImageData(this.img, 0, 0);
       this.dirty = false;

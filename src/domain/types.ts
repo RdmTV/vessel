@@ -9,12 +9,26 @@ export type Timing =
   /** start/end — минуты от полуночи. end <= start означает переход через полночь. */
   | { kind: 'interval'; start: number; end: number };
 
+/**
+ * «Оборот» — дело, которое делается одновременно с основным (бег + подкаст, дорога + аудиокнига).
+ * Места в сосуде не занимает: живёт внутри пласта основного дела.
+ */
+export interface Parallel {
+  title: string;
+  categoryId: string;
+  /** Не больше длительности основного дела. */
+  minutes: number;
+  done?: boolean;
+  goalId?: string;
+}
+
 /** Скрытые затраты, привязанные к задаче. Лежат отдельными пластами сразу над ней. */
 export type AttachmentKind = 'travel' | 'prep' | 'recovery';
 export interface Attachment {
   kind: AttachmentKind;
   label: string;
   minutes: number;
+  parallel?: Parallel;
 }
 
 export interface Subtask {
@@ -40,6 +54,7 @@ export interface TaskFields {
   subtasks: Subtask[];
   /** Привязка к долгосрочной цели. */
   goalId?: string;
+  parallel?: Parallel;
 }
 
 export interface Task extends TaskFields {
@@ -68,6 +83,8 @@ export interface RoutineItem {
   categoryId: string;
   minutes: number;
   weekdays: number[]; // 0 = Пн … 6 = Вс
+  /** Оборот по шаблону (каждый раз, когда этот пункт рутины есть в дне). */
+  parallel?: Parallel;
 }
 
 export interface Category {
@@ -128,6 +145,8 @@ export interface AppData {
   routine: RoutineItem[];
   /** Переопределения рутины на конкретный день: itemId → минуты (0 = пропустить). */
   routineOverrides: Record<DateKey, Record<string, number>>;
+  /** Оборот пункта рутины на конкретный день: itemId → оборот (null — на этот день без оборота). */
+  routineParallel?: Record<DateKey, Record<string, Parallel | null>>;
   settings: Settings;
   /** Нет профиля — показываем онбординг. */
   profile?: Profile;

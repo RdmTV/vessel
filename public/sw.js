@@ -1,7 +1,7 @@
 // Сервис-воркер: приложение открывается без сети.
 // HTML — сначала сеть (чтобы приходили обновления), при ошибке — кэш.
 // Ассеты с хэшем в имени неизменны — сначала кэш.
-const CACHE = 'vessel-v1';
+const CACHE = 'vessel-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { computeDay, dayLoad, nearestFitDays, tasksForDate } from './day';
 import { emptyData } from './defaults';
 import { pendingCheckIn, saveCheckIn, skipCheckIn } from './checkin';
-import { addGoal, deleteGoal, goalStats, goalStreak, updateGoal, type GoalInput } from './goals';
+import { addGoal, deleteGoal, goalStats, goalStreak, reserveCoveredBy, updateGoal, type GoalInput } from './goals';
+import { mergeInto, mergeOptions, setParallel, splitParallel, twiceMinutes } from './parallel';
 import { ageYears, lifeEnd, lifeStats, pluralDays } from './life';
 import { periodRange, periodStats } from './stats';
 import { aggregateWeek, weekDays, weekStart } from './week';
@@ -252,6 +253,72 @@ describe('итоги', () => {
 
   it('границы месяца', () => {
     expect(periodRange('2026-02-14', 'month')).toEqual(['2026-02-01', '2026-02-28']);
+  });
+});
+
+describe('обороты', () => {
+  const podcast = (over: Partial<TaskFields> = {}) =>
+    fields({ title: 'Подкаст', categoryId: 'study', timing: { kind: 'duration', minutes: 40 }, ...over });
+
+  it('слияние освобождает место, разделение возвращает', () => {
+    let d = addTask(bare(), fields({ title: 'Бег', timing: { kind: 'duration', minutes: 60 } }), MON, null);
+    d = addTask(d, podcast(), MON, null);
+    expect(computeDay(d, MON).total).toBe(100);
+    const plan = computeDay(d, MON);
+    const source = plan.tasks.find((t) => t.title === 'Подкаст')!;
+    const target = mergeOptions(plan, source.id)[0];
+    d = mergeInto(d, source, target.target, target.minutes);
+    const merged = computeDay(d, MON);
+    expect(merged.total).toBe(60); // подкаст впитался
+    expect(merged.items[0].parallel).toMatchObject({ title: 'Подкаст', minutes: 40 });
+    expect(twiceMinutes(merged)).toBe(40);
+    d = splitParallel(d, target.target, merged.items[0].parallel!, MON);
+    expect(computeDay(d, MON).total).toBe(100);
+    expect(computeDay(d, MON).items[0].parallel).toBeUndefined();
+  });
+
+  it('длинный источник: остаток остаётся отдельной задачей', () => {
+    let d = addTask(bare(), fields({ title: 'Бег', timing: { kind: 'duration', minutes: 30 } }), MON, null);
+    d = addTask(d, podcast(), MON, null);
+    const plan = computeDay(d, MON);
+    const source = plan.tasks.find((t) => t.title === 'Подкаст')!;
+    const opt = mergeOptions(plan, source.id)[0];
+    d = mergeInto(d, source, opt.target, opt.minutes);
+    const after = computeDay(d, MON);
+    expect(after.items[0].parallel?.minutes).toBe(30);
+    expect(after.tasks.find((t) => t.title === 'Подкаст')?.timing).toEqual({ kind: 'duration', minutes: 10 });
+  });
+
+  it('оборот рутины: шаблон и переопределение на день', () => {
+    let d = emptyData();
+    d = { ...d, routine: d.routine.map((r) => (r.id === 'commute' ? { ...r, parallel: { title: 'Аудиокнига', categoryId: 'rest', minutes: 60 } } : r)) };
+    const commute = (day: string) => computeDay(d, day).items.find((i) => i.key === 'r:commute');
+    expect(commute(MON)?.parallel?.title).toBe('Аудиокнига');
+    d = setParallel(d, { kind: 'routine', routineId: 'commute', date: MON }, null);
+    expect(commute(MON)?.parallel).toBeUndefined();
+    expect(commute('2026-10-13')?.parallel?.title).toBe('Аудиокнига');
+  });
+
+  it('засчитывается в цель и «прожито дважды»', () => {
+    let d = addGoal(bare(), {
+      title: 'Английский', categoryId: 'study', color: '#4FD1E8', start: MON, end: '2026-10-31', reserve: null,
+    }, MON);
+    const goalId = d.goals![0].id;
+    d = addTask(d, fields({ title: 'Бег', timing: { kind: 'duration', minutes: 60 } }), MON, null);
+    const t = tasksForDate(d, MON)[0];
+    d = setParallel(d, { kind: 'task', taskId: t.id }, { title: 'Подкаст EN', categoryId: 'study', minutes: 45, goalId, done: true });
+    expect(goalStats(d, d.goals![0])).toEqual({ planned: 45, done: 45 });
+    expect(reserveCoveredBy(d, MON, goalId)).toBe('Бег');
+    const s = periodStats(d, MON, MON);
+    expect(s.twiceTotal).toBe(45);
+    expect(s.byCategory.find((c) => c.categoryId === 'study')?.parallel).toBe(45);
+  });
+
+  it('новый экземпляр повтора — оборот не отмечен', () => {
+    let d = addTask(bare(), fields({ parallel: { title: 'Подкаст', categoryId: 'study', minutes: 30, done: true } }), MON, { freq: 'daily' });
+    const next = tasksForDate(d, '2026-10-13')[0];
+    d = toggleDone(d, next.id);
+    expect(tasksForDate(d, '2026-10-13')[0].parallel?.done).toBe(false);
   });
 });
 

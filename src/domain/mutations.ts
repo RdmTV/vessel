@@ -13,10 +13,26 @@ export type EditScope = 'this' | 'following';
 const cloneFields = (f: TaskFields): TaskFields => structuredClone(f);
 
 function pickFields(t: TaskFields): TaskFields {
-  const { title, categoryId, timing, priority, location, attachments, subtasks, goalId } = t;
+  const { title, categoryId, timing, priority, location, attachments, subtasks, goalId, parallel } = t;
   const fields: TaskFields = cloneFields({ title, categoryId, timing, priority, location, attachments, subtasks });
   if (goalId) fields.goalId = goalId;
+  if (parallel) fields.parallel = structuredClone(parallel);
   return fields;
+}
+
+/** Новый экземпляр повтора — без отметок «сделано» у подпунктов и оборотов. */
+function freshInstance(f: TaskFields): TaskFields {
+  return {
+    ...f,
+    subtasks: f.subtasks.map((st) => ({ ...st, done: false })),
+    attachments: f.attachments.map((a) => (a.parallel ? { ...a, parallel: { ...a.parallel, done: false } } : a)),
+    ...(f.parallel ? { parallel: { ...f.parallel, done: false } } : {}),
+  };
+}
+
+/** Изменить задачу (виртуальный экземпляр серии сперва материализуется). */
+export function patchTask(data: AppData, id: string, fn: (t: Task) => Task): AppData {
+  return mapTask(data, id, fn);
 }
 
 export function addTask(
@@ -39,8 +55,7 @@ export function materialize(data: AppData, id: string): { data: AppData; id: str
   if (!v) return { data, id };
   const s = data.series.find((x) => x.id === v.seriesId);
   if (!s) return { data, id };
-  const fields = cloneFields(s.template);
-  fields.subtasks = fields.subtasks.map((st) => ({ ...st, done: false }));
+  const fields = freshInstance(cloneFields(s.template));
   const task: Task = { ...fields, id, date: v.date, done: false, order: s.order, seriesId: s.id };
   return {
     id: task.id,
@@ -151,8 +166,7 @@ export function updateTask(
     };
   }
 
-  const template = pickFields(fields);
-  template.subtasks = template.subtasks.map((st) => ({ ...st, done: false }));
+  const template = freshInstance(pickFields(fields));
   const taken = next.series.find((x) => x.id === s.id)?.taken ?? [];
   const fresh: Series = {
     id: uid(), template, rule: newRule, start: date,

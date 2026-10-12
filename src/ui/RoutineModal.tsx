@@ -1,11 +1,13 @@
-import { CATEGORIES } from '../domain/categories';
+import { useState } from 'react';
+import { CATEGORIES, category } from '../domain/categories';
 import { formatDayShort, formatMinutes, todayKey } from '../domain/dates';
 import { DAY_CAPACITY } from '../domain/day';
 import { uid } from '../domain/id';
 import { clearRoutineOverrides, routineOverridesFrom } from '../domain/mutations';
-import type { DateKey, RoutineItem } from '../domain/types';
+import type { DateKey, Parallel, RoutineItem } from '../domain/types';
 import { useStore } from '../store';
 import { DurationPicker, Modal, WeekdayPicker } from './common';
+import { ParallelForm } from './Parallel';
 
 const ROUTINE_QUICK = [30, 60, 90, 120, 480, 540];
 
@@ -14,6 +16,38 @@ export function RoutineModal({ onClose }: { onClose: () => void }) {
     <Modal title="Шаблон рутины" onClose={onClose} wide>
       <RoutineEditor />
     </Modal>
+  );
+}
+
+/** Оборот пункта рутины по шаблону: каждый раз, когда пункт есть в дне. */
+function TemplateParallel({ value, maxMinutes, onChange }: {
+  value?: Parallel; maxMinutes: number; onChange: (p: Parallel | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <ParallelForm
+        value={value}
+        maxMinutes={maxMinutes}
+        saveLabel={value ? 'Сохранить' : 'Добавить'}
+        onCancel={() => setEditing(false)}
+        onSave={(p) => {
+          onChange(p);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+  if (!value) {
+    return <button type="button" className="link" onClick={() => setEditing(true)}>⇄ + Параллельно по шаблону</button>;
+  }
+  return (
+    <div className="template-parallel">
+      <i style={{ background: category(value.categoryId).color }} />
+      <span>⇄ {value.title} · {formatMinutes(Math.min(value.minutes, maxMinutes))}</span>
+      <button type="button" className="link" onClick={() => setEditing(true)}>изменить</button>
+      <button type="button" className="link" onClick={() => onChange(null)}>убрать</button>
+    </div>
   );
 }
 
@@ -66,6 +100,15 @@ export function RoutineEditor() {
             </div>
             <DurationPicker value={r.minutes} onChange={(m) => patch(r.id, { minutes: m })} quick={ROUTINE_QUICK} />
             <WeekdayPicker value={r.weekdays} onChange={(w) => patch(r.id, { weekdays: w })} />
+            <TemplateParallel
+              value={r.parallel}
+              maxMinutes={r.minutes}
+              onChange={(p) => setRoutine((list) => list.map((x) => {
+                if (x.id !== r.id) return x;
+                const { parallel: _old, ...rest } = x;
+                return p ? { ...rest, parallel: p } : rest;
+              }))}
+            />
             <OverrideNotice
               list={routineOverridesFrom(data, today, r.id)}
               today={today}
